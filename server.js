@@ -8,9 +8,9 @@ const artisanRoutes = require("./src/routes/artisanRoutes");
 const bookingRoutes = require("./src/routes/bookingRoutes");
 
 // MARKETPLACE ROUTES
-const productRoutes = require("./routes/productRoutes");
-const cartRoutes = require("./routes/cartRoutes");
-const orderRoutes = require("./routes/orderRoutes");
+const productRoutes = require("./src/routes/productRoutes");
+const cartRoutes = require("./src/routes/cartRoutes");
+const orderRoutes = require("./src/routes/orderRoutes");
 
 const app = express();
 
