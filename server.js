@@ -14,11 +14,21 @@ const orderRoutes = require("./src/routes/orderRoutes");
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://demandpointmarketplace.vercel.app/",
+];
+
 // Connect to MongoDB
 connectDB();
 
 // Middleware
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 // Core API Routes
