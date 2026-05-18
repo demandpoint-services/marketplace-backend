@@ -7,6 +7,11 @@ const authRoutes = require("./src/routes/authRoutes");
 const artisanRoutes = require("./src/routes/artisanRoutes");
 const bookingRoutes = require("./src/routes/bookingRoutes");
 
+// MARKETPLACE ROUTES
+const productRoutes = require("./routes/productRoutes");
+const cartRoutes = require("./routes/cartRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+
 const app = express();
 
 // Connect to MongoDB
@@ -16,10 +21,13 @@ connectDB();
 app.use(cors({ origin: "http://localhost:3000", credentials: true }));
 app.use(express.json());
 
-// Routes
+// Core API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/artisans", artisanRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/orders", orderRoutes);
 
 // Test route
 app.get("/", (req, res) => {
