@@ -6,12 +6,14 @@ const {
   getArtisans,
   getArtisan,
   updateProfile,
+  getMyArtisanProfile,
 } = require("../controllers/artisanController");
 
 const { protect, artisanOnly } = require("../middleware/authMiddleware");
 
 // Public
 router.get("/", getArtisans);
+router.get("/me", protect, getMyArtisanProfile);
 router.get("/:id", getArtisan);
 
 // Protected artisan routes

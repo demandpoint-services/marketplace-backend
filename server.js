@@ -5,6 +5,7 @@ const connectDB = require("./src/config/db");
 
 const authRoutes = require("./src/routes/authRoutes");
 const artisanRoutes = require("./src/routes/artisanRoutes");
+const bookingRoutes = require("./src/routes/bookingRoutes");
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/artisans", artisanRoutes);
+app.use("/api/bookings", bookingRoutes);
 
 // Test route
 app.get("/", (req, res) => {

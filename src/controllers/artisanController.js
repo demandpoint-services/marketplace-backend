@@ -1,4 +1,5 @@
 const ArtisanProfile = require("../models/ArtisanProfile");
+const cloudinary = require("../config/cloudinary");
 
 // Create artisan profile
 exports.createProfile = async (req, res) => {
@@ -11,12 +12,14 @@ exports.createProfile = async (req, res) => {
       return res.status(400).json({ message: "Profile already exists" });
     }
 
+    const uploadedImage = profileImage || "";
+
     const profile = await ArtisanProfile.create({
       user: req.user._id,
       category,
       location,
       bio,
-      profileImage,
+      profileImage: uploadedImage,
     });
 
     res.status(201).json(profile);
@@ -54,6 +57,18 @@ exports.getArtisan = async (req, res) => {
     res.json(artisan);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+exports.getMyArtisanProfile = async (req, res) => {
+  try {
+    const profile = await ArtisanProfile.findOne({
+      user: req.user._id,
+    }).populate("user", "name email phone");
+
+    res.json(profile);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 
