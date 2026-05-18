@@ -16,7 +16,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://demandpointmarketplace.vercel.app/",
+  "https://demandpointmarketplace.vercel.app",
 ];
 
 // Connect to MongoDB
@@ -25,7 +25,13 @@ connectDB();
 // Middleware
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   }),
 );
