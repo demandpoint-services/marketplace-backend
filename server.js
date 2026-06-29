@@ -11,6 +11,7 @@ const bookingRoutes = require("./src/routes/bookingRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const cartRoutes = require("./src/routes/cartRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
+const userRoutes = require("./src/routes/userRoutes");
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use(express.json());
 
 // Core API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/artisans", artisanRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/products", productRoutes);

@@ -57,6 +57,11 @@ exports.register = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      phone: user.phone,
+      bio: user.bio,
+      location: user.location,
+      profileImage: user.profileImage,
+      profileCompleted: user.profileCompleted,
     };
 
     // Token
@@ -105,7 +110,12 @@ exports.login = async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
+      bio: user.bio,
+      location: user.location,
+      profileImage: user.profileImage,
+      profileCompleted: user.profileCompleted,
     };
 
     // Generate token
