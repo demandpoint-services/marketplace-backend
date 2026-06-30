@@ -6,6 +6,21 @@ exports.createBooking = async (req, res) => {
   try {
     const { artisan, service, date, time, address, notes, price } = req.body;
 
+    const artisanProfile =
+      await ArtisanProfile.findById(artisan).populate("user");
+
+    if (!artisanProfile) {
+      return res.status(404).json({
+        message: "Artisan not found",
+      });
+    }
+
+    if (artisanProfile.user.isSuspended) {
+      return res.status(403).json({
+        message: "This artisan is currently unavailable.",
+      });
+    }
+
     const booking = await Booking.create({
       client: req.user._id,
       artisan,
