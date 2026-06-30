@@ -105,6 +105,14 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Suspended Check
+    if (user.isSuspended) {
+      return res.status(403).json({
+        message:
+          "Your account has been suspended. Reactivate it from your profile or contact support.",
+      });
+    }
+
     // SAFE USER OBJECT
     const safeUser = {
       _id: user._id,

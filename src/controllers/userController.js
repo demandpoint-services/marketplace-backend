@@ -104,3 +104,31 @@ exports.deleteMe = async (req, res) => {
     });
   }
 };
+
+// Suspend User Account
+exports.toggleSuspension = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user)
+      return res.status(404).json({
+        message: "User not found",
+      });
+
+    user.isSuspended = !user.isSuspended;
+
+    user.suspendedAt = user.isSuspended ? new Date() : null;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      suspended: user.isSuspended,
+      message: user.isSuspended ? "Account suspended." : "Account reactivated.",
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};

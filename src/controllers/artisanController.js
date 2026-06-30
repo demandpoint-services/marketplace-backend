@@ -17,9 +17,6 @@ exports.createProfile = async (req, res) => {
     const profile = await ArtisanProfile.create({
       user: req.user._id,
       category,
-      location,
-      bio,
-      profileImage: uploadedImage,
     });
 
     res.status(201).json(profile);
@@ -33,12 +30,18 @@ exports.getArtisans = async (req, res) => {
   try {
     const artisans = await ArtisanProfile.find().populate(
       "user",
-      "name email phone",
+      "name email phone profileImage bio location isSuspended",
     );
 
-    res.json(artisans);
+    const activeArtisans = artisans.filter(
+      (artisan) => artisan.user && artisan.user.isSuspended === false,
+    );
+
+    res.json(activeArtisans);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
