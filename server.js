@@ -18,6 +18,8 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "https://demandpointmarketplace.vercel.app",
+  "https://demandpoint.app",
+  "https://www.demandpoint.app",
 ];
 
 // Connect to MongoDB
