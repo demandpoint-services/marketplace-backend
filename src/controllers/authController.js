@@ -1,6 +1,9 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT
 const generateToken = (id) => {
@@ -96,6 +99,14 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Google account check
+    if (user.provider === "google" && !user.password) {
+      return res.status(400).json({
+        message:
+          "This account uses Google Sign-In. Please continue with Google.",
+      });
+    }
+
     // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
 
@@ -136,6 +147,63 @@ exports.login = async (req, res) => {
   } catch (err) {
     res.status(500).json({
       message: err.message,
+    });
+  }
+};
+
+// Google Login
+exports.googleLogin = async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+
+    const { sub, email, name, picture } = payload;
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = await User.create({
+        name,
+        email,
+        googleId: sub,
+        provider: "google",
+        profileImage: picture,
+      });
+    }
+
+    if (user.isSuspended) {
+      return res.status(403).json({
+        message: "Your account has been suspended.",
+      });
+    }
+
+    const token = generateToken(user._id);
+
+    res.json({
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        bio: user.bio,
+        location: user.location,
+        profileImage: user.profileImage,
+        profileCompleted: user.profileCompleted,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      message: "Google authentication failed",
     });
   }
 };
