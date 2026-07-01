@@ -3,7 +3,7 @@ const User = require("../models/User");
 // Setup Account
 exports.setupAccount = async (req, res) => {
   try {
-    const { phone, bio, location, profileImage } = req.body;
+    const { role, phone, bio, location, profileImage } = req.body;
 
     const user = await User.findById(req.user._id);
 
@@ -11,6 +11,11 @@ exports.setupAccount = async (req, res) => {
       return res.status(404).json({
         message: "User not found",
       });
+    }
+
+    // Allow role to be chosen only once
+    if (!user.role && role) {
+      user.role = role;
     }
 
     user.phone = phone || user.phone;

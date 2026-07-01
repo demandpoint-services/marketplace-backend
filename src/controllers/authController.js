@@ -15,7 +15,7 @@ const generateToken = (id) => {
 // Register
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
 
     // Validation
     if (!name || !email || !password) {
@@ -51,7 +51,6 @@ exports.register = async (req, res) => {
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
-      role,
     });
 
     // SAFE USER OBJECT
@@ -175,12 +174,33 @@ exports.googleLogin = async (req, res) => {
         provider: "google",
         profileImage: picture,
       });
+    } else if (!user.googleId) {
+      user.googleId = sub;
+      user.provider = "google";
+
+      if (!user.profileImage) {
+        user.profileImage = picture;
+      }
+
+      await user.save();
     }
 
     if (user.isSuspended) {
       return res.status(403).json({
         message: "Your account has been suspended.",
       });
+    }
+
+    // Existing local account logging in with Google
+    else if (!user.googleId) {
+      user.googleId = sub;
+      user.provider = "google";
+
+      if (!user.profileImage) {
+        user.profileImage = picture;
+      }
+
+      await user.save();
     }
 
     const token = generateToken(user._id);
