@@ -23,8 +23,7 @@ exports.setupAccount = async (req, res) => {
     user.location = location || user.location;
     user.profileImage = profileImage || user.profileImage;
     user.profileCompleted = true;
-
-    await user.save();
+    ((user.isVerified = user.isVerified), await user.save());
 
     res.json({
       message: "Account setup completed",
@@ -38,6 +37,7 @@ exports.setupAccount = async (req, res) => {
         location: user.location,
         profileImage: user.profileImage,
         profileCompleted: user.profileCompleted,
+        isVerified: user.isVerified,
       },
     });
   } catch (err) {
@@ -50,7 +50,9 @@ exports.setupAccount = async (req, res) => {
 // Get Current Logged-in User
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
+    const user = await User.findById(req.user._id).select(
+      "-password -verificationCode -verificationExpires",
+    );
 
     if (!user) {
       return res.status(404).json({

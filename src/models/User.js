@@ -54,6 +54,13 @@ const userSchema = new mongoose.Schema(
     suspendedAt: {
       type: Date,
     },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationCode: String,
+
+    verificationExpires: Date,
   },
   { timestamps: true },
 );

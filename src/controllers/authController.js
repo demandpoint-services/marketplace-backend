@@ -2,6 +2,7 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
+const sendVerificationEmail = require("../utils/sendVerificationEmail");
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -46,12 +47,23 @@ exports.register = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate a fresh OTP for this user
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
+
+    const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+
     // Create user
     const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
+
+      verificationCode,
+      verificationExpires,
     });
+    await sendVerificationEmail(user.email, verificationCode);
 
     // SAFE USER OBJECT
     const safeUser = {
@@ -64,6 +76,7 @@ exports.register = async (req, res) => {
       location: user.location,
       profileImage: user.profileImage,
       profileCompleted: user.profileCompleted,
+      isVerified: user.isVerified,
     };
 
     // Token
@@ -217,6 +230,7 @@ exports.googleLogin = async (req, res) => {
         location: user.location,
         profileImage: user.profileImage,
         profileCompleted: user.profileCompleted,
+        isVerified: user.isVerified,
       },
     });
   } catch (err) {
@@ -224,6 +238,94 @@ exports.googleLogin = async (req, res) => {
 
     res.status(500).json({
       message: "Google authentication failed",
+    });
+  }
+};
+
+// Verify Email endpoint
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    if (user.isVerified) {
+      return res.json({
+        message: "Email already verified",
+      });
+    }
+
+    if (
+      user.verificationCode !== code ||
+      user.verificationExpires < new Date()
+    ) {
+      return res.status(400).json({
+        message: "Invalid or expired verification code",
+      });
+    }
+
+    user.isVerified = true;
+    user.verificationCode = undefined;
+    user.verificationExpires = undefined;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Email verified successfully",
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};
+
+// Resend Verification Code endpoint
+exports.resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    if (user.isVerified) {
+      return res.json({
+        message: "Email already verified",
+      });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    user.verificationCode = code;
+    user.verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    await user.save();
+
+    await sendVerificationEmail(user.email, code);
+
+    res.json({
+      success: true,
+      message: "Verification code sent.",
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
     });
   }
 };
