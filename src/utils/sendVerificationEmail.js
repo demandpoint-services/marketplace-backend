@@ -3,7 +3,7 @@ const resend = require("../config/resend");
 async function sendVerificationEmail(email, code) {
   try {
     const response = await resend.emails.send({
-      from: "Demand Point <onboarding@resend.dev>",
+      from: "Demand Point Skills and Services <noreply@mail.demandpoint.app>",
       to: email,
       subject: "Verify your Demand Point account",
       html: `
@@ -31,17 +31,19 @@ async function sendVerificationEmail(email, code) {
 
           <p>If you didn't create this account, you can safely ignore this email.</p>
 
-          <hr>
+          <hr style="margin:40px 0;border:none;border-top:1px solid #eee;">
 
-          <small style="color:#777;">
-            © Demand Point Marketplace
-          </small>
+          <p style="font-size:14px;color:#777;text-align:center;">
+            Demand Point Skills and Services
+          </p>
+
+          <p style="font-size:12px;color:#999;text-align:center;">
+            © 2026 Demand Point Skills and Services. All rights reserved.
+          </p>
         </div>
       `,
     });
-    console.log("Resend response:", response);
   } catch (err) {
-    console.error("Verification email failed:", err);
     throw err;
   }
 }
