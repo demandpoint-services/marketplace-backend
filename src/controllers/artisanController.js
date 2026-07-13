@@ -1,9 +1,8 @@
 const cloudinary = require("../config/cloudinary");
-
-// Create artisan profile
 const ArtisanProfile = require("../models/ArtisanProfile");
 const User = require("../models/User");
 
+// Create artisan profile
 exports.createProfile = async (req, res) => {
   try {
     const {
@@ -47,7 +46,7 @@ exports.createProfile = async (req, res) => {
 
     const populatedProfile = await ArtisanProfile.findById(
       profile._id,
-    ).populate("user", "name email phone profileImage bio location");
+    ).populate("user", "name email phone profileImage bio location isVerified");
 
     return res.status(201).json(populatedProfile);
   } catch (error) {
@@ -59,51 +58,62 @@ exports.createProfile = async (req, res) => {
   }
 };
 
-// Get all artisans
+// Get all active artisans
 exports.getArtisans = async (req, res) => {
   try {
-    const artisans = await ArtisanProfile.find().populate(
-      "user",
-      "name email phone profileImage bio location isSuspended",
-    );
+    const artisans = await ArtisanProfile.find()
+      .populate(
+        "user",
+        "name email phone profileImage bio location isVerified isSuspended createdAt",
+      )
+      .sort({ createdAt: -1 });
 
     const activeArtisans = artisans.filter(
-      (artisan) => artisan.user && artisan.user.isSuspended === false,
+      (artisan) => artisan.user && artisan.user.isSuspended !== true,
     );
 
-    res.json(activeArtisans);
+    return res.status(200).json(activeArtisans);
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
+    console.error("Get artisans error:", error);
+
+    return res.status(500).json({
+      message: error.message || "Unable to retrieve artisans",
     });
   }
 };
 
-// Get single artisan
+// Get a single artisan
 exports.getArtisan = async (req, res) => {
   try {
     const artisan = await ArtisanProfile.findById(req.params.id).populate(
       "user",
-      "name email phone",
+      "name email phone profileImage bio location isVerified isSuspended createdAt",
     );
 
-    if (!artisan) {
-      return res.status(404).json({ message: "Artisan not found" });
+    if (!artisan || !artisan.user || artisan.user.isSuspended) {
+      return res.status(404).json({
+        message: "Artisan not found",
+      });
     }
 
-    res.json(artisan);
+    return res.status(200).json(artisan);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Get artisan error:", error);
+
+    return res.status(500).json({
+      message: error.message || "Unable to retrieve artisan",
+    });
   }
 };
 
+// Get current artisan profile
 exports.getMyArtisanProfile = async (req, res) => {
   try {
     const profile = await ArtisanProfile.findOne({
       user: req.user._id,
     }).populate(
       "user",
-      "name email phone profileImage bio location isVerified",
+      "name email phone profileImage bio location isVerified createdAt",
     );
 
     if (!profile) {
@@ -114,6 +124,8 @@ exports.getMyArtisanProfile = async (req, res) => {
 
     return res.status(200).json(profile);
   } catch (err) {
+    console.error("Get artisan profile error:", err);
+
     return res.status(500).json({
       message: err.message,
     });
@@ -123,20 +135,46 @@ exports.getMyArtisanProfile = async (req, res) => {
 // Update artisan profile
 exports.updateProfile = async (req, res) => {
   try {
-    const profile = await ArtisanProfile.findOne({ user: req.user._id });
+    const profile = await ArtisanProfile.findOne({
+      user: req.user._id,
+    });
 
     if (!profile) {
-      return res.status(404).json({ message: "Profile not found" });
+      return res.status(404).json({
+        message: "Profile not found",
+      });
     }
 
-    const updated = await ArtisanProfile.findByIdAndUpdate(
-      profile._id,
-      req.body,
-      { new: true },
+    const allowedUpdates = [
+      "category",
+      "skills",
+      "minimumCharge",
+      "hourlyRate",
+      "yearsOfExperience",
+      "serviceAreas",
+      "available",
+      "responseTime",
+    ];
+
+    for (const field of allowedUpdates) {
+      if (req.body[field] !== undefined) {
+        profile[field] = req.body[field];
+      }
+    }
+
+    await profile.save();
+
+    const updated = await ArtisanProfile.findById(profile._id).populate(
+      "user",
+      "name email phone profileImage bio location isVerified createdAt",
     );
 
-    res.json(updated);
+    return res.status(200).json(updated);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Update artisan profile error:", error);
+
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };

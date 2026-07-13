@@ -1,5 +1,5 @@
 const PortfolioItem = require("../models/PortfolioItem");
-const User = require("../models/User");
+const ArtisanProfile = require("../models/ArtisanProfile");
 
 const MAX_PORTFOLIO_ITEMS = 12;
 
@@ -31,8 +31,16 @@ exports.getMyPortfolio = async (req, res) => {
 // GET /api/portfolio/artisan/:artisanId
 exports.getArtisanPortfolio = async (req, res) => {
   try {
+    const artisanProfile = await ArtisanProfile.findById(req.params.artisanId);
+
+    if (!artisanProfile) {
+      return res.status(404).json({
+        message: "Artisan not found",
+      });
+    }
+
     const items = await PortfolioItem.find({
-      artisan: req.params.artisanId,
+      artisan: artisanProfile.user,
     }).sort({
       featured: -1,
       createdAt: -1,
@@ -40,10 +48,8 @@ exports.getArtisanPortfolio = async (req, res) => {
 
     return res.status(200).json(items);
   } catch (err) {
-    console.error("Get public portfolio error:", err);
-
     return res.status(500).json({
-      message: "Unable to retrieve artisan portfolio.",
+      message: "Unable to retrieve artisan portfolio",
     });
   }
 };

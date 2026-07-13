@@ -1,11 +1,12 @@
-const User = require("../models/User");
-const ArtisanProfile = require("../models/ArtisanProfile");
 const PortfolioItem = require("../models/PortfolioItem");
 const Booking = require("../models/Booking");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
 
 // Setup Account
+const User = require("../models/User");
+const ArtisanProfile = require("../models/ArtisanProfile");
+
 exports.setupAccount = async (req, res) => {
   try {
     const { role, phone, bio, location, profileImage, category } = req.body;
@@ -18,14 +19,25 @@ exports.setupAccount = async (req, res) => {
       });
     }
 
-    // Role can only be selected once
     if (!user.role && role) {
       user.role = role;
     }
 
-    if (phone !== undefined) user.phone = phone;
-    if (bio !== undefined) user.bio = bio;
-    if (location !== undefined) user.location = location;
+    if (!["client", "artisan", "admin"].includes(user.role)) {
+      return res.status(400).json({
+        message: "Invalid account type",
+      });
+    }
+
+    if (user.role === "artisan" && !category?.trim()) {
+      return res.status(400).json({
+        message: "Profession is required for artisan accounts",
+      });
+    }
+
+    if (phone !== undefined) user.phone = phone.trim();
+    if (bio !== undefined) user.bio = bio.trim();
+    if (location !== undefined) user.location = location.trim();
     if (profileImage !== undefined) {
       user.profileImage = profileImage;
     }
@@ -34,14 +46,20 @@ exports.setupAccount = async (req, res) => {
 
     await user.save();
 
-    // Ensure an artisan profile exists
+    let artisanProfile = null;
+
     if (user.role === "artisan") {
-      await ArtisanProfile.findOneAndUpdate(
-        { user: user._id },
+      artisanProfile = await ArtisanProfile.findOneAndUpdate(
         {
+          user: user._id,
+        },
+        {
+          $set: {
+            category: category.trim(),
+          },
+
           $setOnInsert: {
             user: user._id,
-            category: category?.trim() || "General Services",
           },
         },
         {
@@ -54,6 +72,7 @@ exports.setupAccount = async (req, res) => {
 
     return res.status(200).json({
       message: "Account setup completed",
+
       user: {
         _id: user._id,
         name: user.name,
@@ -67,17 +86,19 @@ exports.setupAccount = async (req, res) => {
         isVerified: user.isVerified,
         provider: user.provider,
       },
+
+      artisanProfile,
     });
   } catch (err) {
     console.error("Setup account error:", err);
 
     return res.status(500).json({
-      message: err.message,
+      message: err.message || "Unable to complete account setup",
     });
   }
 };
 
-// Get Current Logged-in User
+// Get current logged-in user
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select(
@@ -90,10 +111,12 @@ exports.getMe = async (req, res) => {
       });
     }
 
-    res.json(user);
+    return res.status(200).json(user);
   } catch (err) {
-    res.status(500).json({
-      message: err.message,
+    console.error("Get current user error:", err);
+
+    return res.status(500).json({
+      message: err.message || "Unable to retrieve user",
     });
   }
 };
