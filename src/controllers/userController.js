@@ -1,9 +1,14 @@
 const User = require("../models/User");
+const ArtisanProfile = require("../models/ArtisanProfile");
+const PortfolioItem = require("../models/PortfolioItem");
+const Booking = require("../models/Booking");
+const Cart = require("../models/Cart");
+const Order = require("../models/Order");
 
 // Setup Account
 exports.setupAccount = async (req, res) => {
   try {
-    const { role, phone, bio, location, profileImage } = req.body;
+    const { role, phone, bio, location, profileImage, category } = req.body;
 
     const user = await User.findById(req.user._id);
 
@@ -13,19 +18,41 @@ exports.setupAccount = async (req, res) => {
       });
     }
 
-    // Allow role to be chosen only once
+    // Role can only be selected once
     if (!user.role && role) {
       user.role = role;
     }
 
-    user.phone = phone || user.phone;
-    user.bio = bio || user.bio;
-    user.location = location || user.location;
-    user.profileImage = profileImage || user.profileImage;
-    user.profileCompleted = true;
-    ((user.isVerified = user.isVerified), await user.save());
+    if (phone !== undefined) user.phone = phone;
+    if (bio !== undefined) user.bio = bio;
+    if (location !== undefined) user.location = location;
+    if (profileImage !== undefined) {
+      user.profileImage = profileImage;
+    }
 
-    res.json({
+    user.profileCompleted = true;
+
+    await user.save();
+
+    // Ensure an artisan profile exists
+    if (user.role === "artisan") {
+      await ArtisanProfile.findOneAndUpdate(
+        { user: user._id },
+        {
+          $setOnInsert: {
+            user: user._id,
+            category: category?.trim() || "General Services",
+          },
+        },
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+        },
+      );
+    }
+
+    return res.status(200).json({
       message: "Account setup completed",
       user: {
         _id: user._id,
@@ -38,10 +65,13 @@ exports.setupAccount = async (req, res) => {
         profileImage: user.profileImage,
         profileCompleted: user.profileCompleted,
         isVerified: user.isVerified,
+        provider: user.provider,
       },
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("Setup account error:", err);
+
+    return res.status(500).json({
       message: err.message,
     });
   }
@@ -100,14 +130,38 @@ exports.updateMe = async (req, res) => {
 // Delete User Account
 exports.deleteMe = async (req, res) => {
   try {
-    await User.findByIdAndDelete(req.user._id);
+    const userId = req.user._id;
 
-    res.json({
-      message: "Account deleted successfully",
+    await Promise.all([
+      ArtisanProfile.deleteOne({ user: userId }),
+
+      PortfolioItem.deleteMany({
+        artisan: userId,
+      }),
+
+      Booking.deleteMany({
+        $or: [{ client: userId }, { artisan: userId }],
+      }),
+
+      Cart.deleteMany({
+        user: userId,
+      }),
+
+      Order.deleteMany({
+        user: userId,
+      }),
+    ]);
+
+    await User.findByIdAndDelete(userId);
+
+    return res.status(200).json({
+      message: "Account and associated data deleted successfully",
     });
   } catch (err) {
-    res.status(500).json({
-      message: err.message,
+    console.error("Delete account error:", err);
+
+    return res.status(500).json({
+      message: "Unable to delete account",
     });
   }
 };
