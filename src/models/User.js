@@ -54,6 +54,16 @@ const userSchema = new mongoose.Schema(
     suspendedAt: {
       type: Date,
     },
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+
+    lastLoginFingerprint: {
+      type: String,
+      default: "",
+    },
+
     isVerified: {
       type: Boolean,
       default: false,
@@ -61,6 +71,15 @@ const userSchema = new mongoose.Schema(
     verificationCode: String,
 
     verificationExpires: Date,
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+
+    lastLoginFingerprint: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true },
 );

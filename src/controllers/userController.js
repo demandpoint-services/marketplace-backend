@@ -2,6 +2,7 @@ const PortfolioItem = require("../models/PortfolioItem");
 const Booking = require("../models/Booking");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
+const { createNotification } = require("../services/notificationService");
 
 // Setup Account
 const User = require("../models/User");
@@ -134,18 +135,37 @@ exports.updateMe = async (req, res) => {
       });
     }
 
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (bio) user.bio = bio;
-    if (location) user.location = location;
-    if (profileImage) user.profileImage = profileImage;
+    if (name !== undefined) user.name = name.trim();
+    if (phone !== undefined) user.phone = phone.trim();
+    if (bio !== undefined) user.bio = bio.trim();
+    if (location !== undefined) user.location = location.trim();
+    if (profileImage !== undefined) {
+      user.profileImage = profileImage;
+    }
 
     await user.save();
 
-    res.json(user);
+    await createNotification({
+      recipient: user._id,
+      type: "PROFILE_UPDATED",
+      category: "security",
+      title: "Profile updated",
+      message: "Your DemandPoint profile information was updated successfully.",
+      actionUrl: "/settings?section=personal",
+      resourceType: "user",
+      resourceId: user._id,
+    });
+
+    const safeUser = await User.findById(user._id).select(
+      "-password -verificationCode -verificationExpires",
+    );
+
+    return res.status(200).json(safeUser);
   } catch (err) {
-    res.status(500).json({
-      message: err.message,
+    console.error("Update user error:", err);
+
+    return res.status(500).json({
+      message: err.message || "Unable to update profile",
     });
   }
 };

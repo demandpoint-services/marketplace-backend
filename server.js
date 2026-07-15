@@ -14,6 +14,8 @@ const cartRoutes = require("./src/routes/cartRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 
+const notificationRoutes = require("./src/routes/notificationRoutes");
+
 const app = express();
 
 const allowedOrigins = [
@@ -25,6 +27,8 @@ const allowedOrigins = [
 
 // Connect to MongoDB
 connectDB();
+
+app.set("trust proxy", 1);
 
 // Middleware
 app.use(
@@ -50,6 +54,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/portfolio", portfolioRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Test route
 app.get("/", (req, res) => {
