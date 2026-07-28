@@ -4,7 +4,9 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 
 const User = require("../models/User");
+
 const sendVerificationEmail = require("../utils/sendVerificationEmail");
+const sendPasswordResetEmail = require("../utils/sendPasswordResetEmail");
 
 const { createNotification } = require("../services/notificationService");
 
@@ -103,6 +105,16 @@ async function sendVerificationEmailSafely(email, code, context) {
     return true;
   } catch (error) {
     console.error(`${context} verification email error:`, error);
+    return false;
+  }
+}
+
+async function sendPasswordResetEmailSafely(email, code, context) {
+  try {
+    await sendPasswordResetEmail(email, code);
+    return true;
+  } catch (error) {
+    console.error(`${context} password reset email error:`, error);
     return false;
   }
 }
@@ -543,6 +555,201 @@ exports.resendVerification = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Unable to resend the verification code.",
+    });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is required.",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address.",
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    /*
+     * Do not reveal whether an account exists.
+     * This helps prevent email enumeration.
+     */
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "If an account exists with this email address, a password reset code has been sent.",
+      });
+    }
+
+    /*
+     * A Google-only account has no local password to reset.
+     */
+    if (!user.password && user.provider === "google") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This account uses Google Sign-In. Please continue with Google.",
+      });
+    }
+
+    if (user.isSuspended) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Your account has been suspended. Contact support for assistance.",
+      });
+    }
+
+    const resetCode = generateVerificationCode();
+
+    user.passwordResetCode = resetCode;
+    user.passwordResetExpires = new Date(
+      Date.now() + VERIFICATION_CODE_DURATION_MS,
+    );
+
+    await user.save();
+
+    const resetEmailSent = await sendPasswordResetEmailSafely(
+      user.email,
+      resetCode,
+      "Forgot password",
+    );
+
+    if (!resetEmailSent) {
+      return res.status(502).json({
+        success: false,
+        message:
+          "We could not send the password reset email. Please try again shortly.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "A password reset code has been sent to your email address.",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Unable to process your password reset request. Please try again.",
+    });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const code = req.body.code?.trim();
+    const password = req.body.password;
+
+    if (!email || !code || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, reset code, and new password are required.",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address.",
+      });
+    }
+
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({
+        success: false,
+        message: "The reset code must contain six digits.",
+      });
+    }
+
+    if (password.length < PASSWORD_MINIMUM_LENGTH) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must be at least ${PASSWORD_MINIMUM_LENGTH} characters.`,
+      });
+    }
+
+    const user = await User.findOne({
+      email,
+      passwordResetCode: code,
+      passwordResetExpires: {
+        $gt: new Date(),
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "The reset code is invalid or has expired.",
+      });
+    }
+
+    if (user.isSuspended) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Your account has been suspended. Contact support for assistance.",
+      });
+    }
+
+    /*
+     * Hash the new password before storing it.
+     *
+     * Your registration controller already hashes passwords manually,
+     * so reset password should follow the same approach.
+     */
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    user.password = passwordHash;
+    user.passwordResetCode = undefined;
+    user.passwordResetExpires = undefined;
+
+    /*
+     * Invalidate the previous login fingerprint so the next login can
+     * establish a fresh security state.
+     */
+    user.lastLoginFingerprint = undefined;
+
+    await user.save();
+
+    await createNotificationSafely(
+      {
+        recipient: user._id,
+        type: NOTIFICATION_TYPES.PASSWORD_CHANGED,
+        category: NOTIFICATION_CATEGORIES.SECURITY,
+        title: "Password changed",
+        message: "Your DemandPoint password was changed successfully.",
+        actionUrl: "/settings?section=security",
+        resourceType: "user",
+        resourceId: user._id,
+      },
+      "Password reset",
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Your password has been reset successfully. You can now sign in.",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to reset your password. Please try again.",
     });
   }
 };

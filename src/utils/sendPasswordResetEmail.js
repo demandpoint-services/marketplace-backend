@@ -1,18 +1,18 @@
 const resend = require("../config/resend");
 
-async function sendVerificationEmail(email, code) {
+async function sendPasswordResetEmail(email, code) {
   try {
     const response = await resend.emails.send({
       from: "Demand Point Skills and Services <noreply@mail.demandpoint.app>",
       to: email,
-      subject: "Verify your Demand Point account",
+      subject: "Reset your Demand Point password",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:40px;">
-          <h2 style="color:#7C3BFF;">Verify your email</h2>
+          <h2 style="color:#7C3BFF;">Reset your password</h2>
 
-          <p>Thanks for creating your Demand Point account.</p>
+          <p>We received a request to reset your Demand Point password.</p>
 
-          <p>Enter the verification code below:</p>
+          <p>Enter the password reset code below:</p>
 
           <div style="
             font-size:34px;
@@ -29,7 +29,10 @@ async function sendVerificationEmail(email, code) {
 
           <p>This code expires in <strong>10 minutes</strong>.</p>
 
-          <p>If you didn't create this account, you can safely ignore this email.</p>
+          <p>
+            If you didn't request a password reset, you can safely ignore this email.
+            Your password will remain unchanged.
+          </p>
 
           <hr style="margin:40px 0;border:none;border-top:1px solid #eee;">
 
@@ -38,14 +41,17 @@ async function sendVerificationEmail(email, code) {
           </p>
 
           <p style="font-size:12px;color:#999;text-align:center;">
-            © ${new Date().getFullYear()} Demand Point Skills and Services. All rights reserved.
+            © ${new Date().getFullYear()} Demand Point Skills and Services.
+            All rights reserved.
           </p>
         </div>
       `,
     });
+
+    return response;
   } catch (err) {
     throw err;
   }
 }
 
-module.exports = sendVerificationEmail;
+module.exports = sendPasswordResetEmail;
