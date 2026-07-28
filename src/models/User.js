@@ -54,6 +54,7 @@ const userSchema = new mongoose.Schema(
     suspendedAt: {
       type: Date,
     },
+
     lastLoginAt: {
       type: Date,
       default: null,
@@ -79,6 +80,10 @@ const userSchema = new mongoose.Schema(
     lastLoginFingerprint: {
       type: String,
       default: "",
+    },
+    lastSeen: {
+      type: Date,
+      default: Date.now,
     },
   },
   { timestamps: true },

@@ -1,6 +1,7 @@
 const cloudinary = require("../config/cloudinary");
 const ArtisanProfile = require("../models/ArtisanProfile");
 const User = require("../models/User");
+const isUserOnline = require("../utils/isUserOnline");
 
 // Create artisan profile
 exports.createProfile = async (req, res) => {

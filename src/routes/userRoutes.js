@@ -10,15 +10,22 @@ const {
 } = require("../controllers/userController");
 
 const { protect } = require("../middleware/authMiddleware");
+const updatePresence = require("../middleware/updatePresence");
 
-router.post("/setup-account", protect, setupAccount);
+// All routes below require authentication
+router.use(protect);
 
-router.get("/me", protect, getMe);
+// Update lastSeen after authentication
+router.use(updatePresence);
 
-router.put("/me", protect, updateMe);
+router.post("/setup-account", setupAccount);
 
-router.delete("/me", protect, deleteMe);
+router.get("/me", getMe);
 
-router.put("/toggle-suspension", protect, toggleSuspension);
+router.put("/me", updateMe);
+
+router.delete("/me", deleteMe);
+
+router.put("/toggle-suspension", toggleSuspension);
 
 module.exports = router;

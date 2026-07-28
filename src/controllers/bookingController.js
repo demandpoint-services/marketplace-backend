@@ -1,5 +1,7 @@
 const Booking = require("../models/Booking");
 const ArtisanProfile = require("../models/ArtisanProfile");
+const mongoose = require("mongoose");
+const User = require("../models/User");
 
 const { createNotification } = require("../services/notificationService");
 
@@ -293,6 +295,104 @@ exports.updateBookingStatus = async (req, res) => {
 
     return res.status(500).json({
       message: error.message || "Unable to update booking status.",
+    });
+  }
+};
+
+// SEND BOOKING MESSAGE TO ARTISAN
+exports.sendBookingMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const message = req.body.message?.trim();
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID.",
+      });
+    }
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        message: "Message is required.",
+      });
+    }
+
+    if (message.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Message must not exceed 1,000 characters.",
+      });
+    }
+
+    const booking = await Booking.findOne({
+      _id: id,
+      client: req.user._id,
+    }).populate({
+      path: "artisan",
+      populate: {
+        path: "user",
+        select: "name email isSuspended",
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    const artisanUser = booking.artisan?.user;
+
+    if (!artisanUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Professional account not found.",
+      });
+    }
+
+    if (artisanUser.isSuspended) {
+      return res.status(403).json({
+        success: false,
+        message: "This professional is currently unavailable.",
+      });
+    }
+
+    const client = await User.findById(req.user._id).select(
+      "name profileImage",
+    );
+
+    const notification = await createNotification({
+      recipient: artisanUser._id,
+      actor: req.user._id,
+      type: NOTIFICATION_TYPES.MESSAGE_RECEIVED,
+      category: NOTIFICATION_CATEGORIES.MESSAGE,
+      title: `Message from ${client?.name || "a client"}`,
+      message,
+      actionUrl: `/artisan/dashboard?tab=bookings&booking=${booking._id}`,
+      resourceType: "booking",
+      resourceId: booking._id,
+      metadata: {
+        bookingId: booking._id,
+        service: booking.service,
+        clientName: client?.name || "",
+        message,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Your message has been sent.",
+      notification,
+    });
+  } catch (error) {
+    console.error("Send booking message error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to send your message. Please try again.",
     });
   }
 };

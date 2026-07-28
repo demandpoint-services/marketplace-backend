@@ -3,6 +3,7 @@ const Booking = require("../models/Booking");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
 const { createNotification } = require("../services/notificationService");
+const isUserOnline = require("../utils/isUserOnline");
 
 // Setup Account
 const User = require("../models/User");
@@ -39,6 +40,7 @@ exports.setupAccount = async (req, res) => {
     if (phone !== undefined) user.phone = phone.trim();
     if (bio !== undefined) user.bio = bio.trim();
     if (location !== undefined) user.location = location.trim();
+
     if (profileImage !== undefined) {
       user.profileImage = profileImage;
     }
@@ -58,7 +60,6 @@ exports.setupAccount = async (req, res) => {
           $set: {
             category: category.trim(),
           },
-
           $setOnInsert: {
             user: user._id,
           },
@@ -86,6 +87,10 @@ exports.setupAccount = async (req, res) => {
         profileCompleted: user.profileCompleted,
         isVerified: user.isVerified,
         provider: user.provider,
+
+        // Online if active within the last 15 minutes
+        online: isUserOnline(user.lastSeen),
+        lastSeen: user.lastSeen,
       },
 
       artisanProfile,
@@ -112,7 +117,10 @@ exports.getMe = async (req, res) => {
       });
     }
 
-    return res.status(200).json(user);
+    return res.status(200).json({
+      ...user.toObject(),
+      online: isUserOnline(user.lastSeen),
+    });
   } catch (err) {
     console.error("Get current user error:", err);
 

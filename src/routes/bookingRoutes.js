@@ -6,6 +6,7 @@ const {
   getMyBookings,
   getArtisanBookings,
   updateBookingStatus,
+  sendBookingMessage,
 } = require("../controllers/bookingController");
 
 const { protect, artisanOnly } = require("../middleware/authMiddleware");
@@ -16,6 +17,7 @@ router.get("/my", protect, getMyBookings);
 
 // ARTISAN
 router.get("/artisan", protect, artisanOnly, getArtisanBookings);
+router.post("/:id/message", protect, sendBookingMessage);
 router.put("/:id", protect, artisanOnly, updateBookingStatus);
 
 module.exports = router;
