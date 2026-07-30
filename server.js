@@ -15,6 +15,7 @@ const orderRoutes = require("./src/routes/orderRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 
 const notificationRoutes = require("./src/routes/notificationRoutes");
+const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // Test route
 app.get("/", (req, res) => {

@@ -2,6 +2,11 @@ const cloudinary = require("../config/cloudinary");
 const ArtisanProfile = require("../models/ArtisanProfile");
 const User = require("../models/User");
 const isUserOnline = require("../utils/isUserOnline");
+const {
+  getOrCreateArtisanSubscription,
+} = require("../services/subscriptionService");
+
+const { serializeSubscription } = require("../utils/subscriptionStatus");
 
 // Create artisan profile
 exports.createProfile = async (req, res) => {
@@ -45,11 +50,17 @@ exports.createProfile = async (req, res) => {
       role: "artisan",
     });
 
+    const subscription = await getOrCreateArtisanSubscription(req.user._id);
+
     const populatedProfile = await ArtisanProfile.findById(
       profile._id,
     ).populate("user", "name email phone profileImage bio location isVerified");
 
-    return res.status(201).json(populatedProfile);
+    return res.status(201).json({
+      profile: populatedProfile,
+
+      subscription: serializeSubscription(subscription),
+    });
   } catch (error) {
     console.error("Create artisan profile error:", error);
 

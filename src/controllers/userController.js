@@ -9,6 +9,12 @@ const isUserOnline = require("../utils/isUserOnline");
 const User = require("../models/User");
 const ArtisanProfile = require("../models/ArtisanProfile");
 
+const {
+  getOrCreateArtisanSubscription,
+} = require("../services/subscriptionService");
+
+const { serializeSubscription } = require("../utils/subscriptionStatus");
+
 exports.setupAccount = async (req, res) => {
   try {
     const { role, phone, bio, location, profileImage, category } = req.body;
@@ -51,6 +57,8 @@ exports.setupAccount = async (req, res) => {
 
     let artisanProfile = null;
 
+    let subscription = null;
+
     if (user.role === "artisan") {
       artisanProfile = await ArtisanProfile.findOneAndUpdate(
         {
@@ -60,6 +68,7 @@ exports.setupAccount = async (req, res) => {
           $set: {
             category: category.trim(),
           },
+
           $setOnInsert: {
             user: user._id,
           },
@@ -70,6 +79,8 @@ exports.setupAccount = async (req, res) => {
           runValidators: true,
         },
       );
+
+      subscription = await getOrCreateArtisanSubscription(user._id);
     }
 
     return res.status(200).json({
@@ -88,12 +99,13 @@ exports.setupAccount = async (req, res) => {
         isVerified: user.isVerified,
         provider: user.provider,
 
-        // Online if active within the last 15 minutes
         online: isUserOnline(user.lastSeen),
         lastSeen: user.lastSeen,
       },
 
       artisanProfile,
+
+      subscription: subscription ? serializeSubscription(subscription) : null,
     });
   } catch (err) {
     console.error("Setup account error:", err);
@@ -108,7 +120,13 @@ exports.setupAccount = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select(
-      "-password -verificationCode -verificationExpires",
+      [
+        "-password",
+        "-verificationCode",
+        "-verificationExpires",
+        "-passwordResetCode",
+        "-passwordResetExpires",
+      ].join(" "),
     );
 
     if (!user) {
@@ -117,9 +135,24 @@ exports.getMe = async (req, res) => {
       });
     }
 
+    let subscription = null;
+
+    if (user.role === "artisan") {
+      const artisanSubscription = await getOrCreateArtisanSubscription(
+        user._id,
+      );
+
+      subscription = serializeSubscription(artisanSubscription);
+    }
+
     return res.status(200).json({
       ...user.toObject(),
+
       online: isUserOnline(user.lastSeen),
+
+      subscriptionRequired: user.role === "artisan",
+
+      subscription,
     });
   } catch (err) {
     console.error("Get current user error:", err);

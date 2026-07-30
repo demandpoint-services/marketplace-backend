@@ -72,15 +72,7 @@ const userSchema = new mongoose.Schema(
     verificationCode: String,
 
     verificationExpires: Date,
-    lastLoginAt: {
-      type: Date,
-      default: null,
-    },
 
-    lastLoginFingerprint: {
-      type: String,
-      default: "",
-    },
     lastSeen: {
       type: Date,
       default: Date.now,
