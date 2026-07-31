@@ -3,6 +3,16 @@ const crypto = require("crypto");
 const User = require("../models/User");
 const SubscriptionPayment = require("../models/SubscriptionPayment");
 
+const PaystackWebhookEvent = require("../models/PaystackWebhookEvent");
+
+const {
+  verifyPaystackSignature,
+  processPaystackSubscriptionEvent,
+  getReference,
+  getSubscriptionCode,
+  getCustomerCode,
+} = require("../services/subscriptionWebhookService");
+
 const {
   getOrCreateArtisanSubscription,
 } = require("../services/subscriptionService");
@@ -452,5 +462,123 @@ exports.verifySubscriptionPayment = async (req, res) => {
         success: false,
         message: error?.message || "Unable to verify subscription payment.",
       });
+  }
+};
+
+// POST /api/subscriptions/webhook/paystack
+exports.handlePaystackWebhook = async (req, res) => {
+  const signature = req.headers["x-paystack-signature"];
+
+  try {
+    const isValidSignature = verifyPaystackSignature(req.body, signature);
+
+    if (!isValidSignature) {
+      console.warn("Rejected Paystack webhook with invalid signature.");
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid webhook signature.",
+      });
+    }
+
+    const event = req.body;
+
+    if (!event?.event || !event?.data) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Paystack webhook payload.",
+      });
+    }
+
+    const reference = getReference(event.data);
+    const subscriptionCode = getSubscriptionCode(event.data);
+    const customerCode = getCustomerCode(event.data);
+
+    const uniqueSource =
+      reference ||
+      subscriptionCode ||
+      event.data?.invoice_code ||
+      event.data?.id ||
+      customerCode ||
+      crypto
+        .createHash("sha256")
+        .update(JSON.stringify(event.data))
+        .digest("hex");
+
+    const eventKey = `${event.event}:${uniqueSource}`;
+
+    let webhookEvent;
+
+    try {
+      webhookEvent = await PaystackWebhookEvent.create({
+        eventKey,
+        eventType: event.event,
+        domain: event.data?.domain || null,
+        reference,
+        subscriptionCode,
+        customerCode,
+        status: "received",
+        payload: event,
+      });
+    } catch (error) {
+      if (error?.code === 11000) {
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          message: "Webhook event was already received.",
+        });
+      }
+
+      throw error;
+    }
+
+    webhookEvent.status = "processing";
+    webhookEvent.attempts += 1;
+    webhookEvent.lastAttemptAt = new Date();
+
+    await webhookEvent.save();
+
+    try {
+      const result = await processPaystackSubscriptionEvent(event);
+
+      webhookEvent.status = result.handled ? "processed" : "ignored";
+      webhookEvent.processedAt = new Date();
+      webhookEvent.failureReason = result.handled
+        ? null
+        : result.reason || "Event was not handled.";
+
+      await webhookEvent.save();
+
+      return res.status(200).json({
+        success: true,
+        processed: result.handled,
+      });
+    } catch (processingError) {
+      webhookEvent.status = "failed";
+      webhookEvent.failureReason =
+        processingError?.message || "Webhook processing failed.";
+
+      await webhookEvent.save().catch((saveError) => {
+        console.error("Save failed webhook event error:", saveError);
+      });
+
+      console.error("Paystack webhook processing error:", processingError);
+
+      /*
+       * Return a non-200 response so Paystack retries events that failed
+       * because of temporary database or application errors.
+       */
+      return res.status(500).json({
+        success: false,
+        message: "Webhook processing failed.",
+      });
+    }
+  } catch (error) {
+    console.error("Paystack webhook error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to process Paystack webhook.",
+    });
   }
 };

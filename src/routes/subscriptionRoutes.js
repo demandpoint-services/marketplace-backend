@@ -6,9 +6,15 @@ const {
   getMySubscription,
   initializeSubscriptionPayment,
   verifySubscriptionPayment,
+  handlePaystackWebhook,
 } = require("../controllers/subscriptionController");
 
 const { protect } = require("../middleware/authMiddleware");
+
+/*
+ * Public Paystack route.
+ */
+router.post("/webhook/paystack", handlePaystackWebhook);
 
 router.get("/me", protect, getMySubscription);
 

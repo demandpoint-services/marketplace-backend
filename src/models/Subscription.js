@@ -23,6 +23,12 @@ const subscriptionSchema = new mongoose.Schema(
       index: true,
     },
 
+    providerStatus: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     trialStartedAt: {
       type: Date,
       default: null,
@@ -64,11 +70,13 @@ const subscriptionSchema = new mongoose.Schema(
     paystackCustomerCode: {
       type: String,
       default: null,
+      index: true,
     },
 
     paystackSubscriptionCode: {
       type: String,
       default: null,
+      index: true,
     },
 
     paystackEmailToken: {
@@ -77,6 +85,12 @@ const subscriptionSchema = new mongoose.Schema(
     },
 
     paystackPlanCode: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    paystackAuthorizationCode: {
       type: String,
       default: null,
     },
@@ -96,7 +110,22 @@ const subscriptionSchema = new mongoose.Schema(
       default: null,
     },
 
+    lastPaymentFailureAt: {
+      type: Date,
+      default: null,
+    },
+
+    paymentFailureReason: {
+      type: String,
+      default: null,
+    },
+
     cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
+    webhookUpdatedAt: {
       type: Date,
       default: null,
     },

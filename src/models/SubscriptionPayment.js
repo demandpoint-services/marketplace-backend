@@ -30,6 +30,24 @@ const subscriptionPaymentSchema = new mongoose.Schema(
       min: 0,
     },
 
+    requestedAmountKobo: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
+    customerChargedKobo: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
+    feesKobo: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
     currency: {
       type: String,
       default: "NGN",
@@ -47,6 +65,31 @@ const subscriptionPaymentSchema = new mongoose.Schema(
       type: String,
       enum: ["paystack"],
       default: "paystack",
+    },
+
+    paymentSource: {
+      type: String,
+      enum: ["checkout", "webhook", "manual"],
+      default: "checkout",
+      index: true,
+    },
+
+    paystackTransactionId: {
+      type: Number,
+      default: null,
+      index: true,
+    },
+
+    paystackInvoiceCode: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    paystackSubscriptionCode: {
+      type: String,
+      default: null,
+      index: true,
     },
 
     accessCode: {
@@ -81,20 +124,6 @@ const subscriptionPaymentSchema = new mongoose.Schema(
 
     failureReason: {
       type: String,
-      default: null,
-    },
-    requestedAmountKobo: {
-      type: Number,
-      default: null,
-    },
-
-    customerChargedKobo: {
-      type: Number,
-      default: null,
-    },
-
-    feesKobo: {
-      type: Number,
       default: null,
     },
   },
