@@ -24,8 +24,9 @@ function getEffectiveSubscriptionStatus(subscription) {
   const now = Date.now();
 
   if (subscription.status === "trialing") {
-    const trialEndsAt =
-      subscription.trialEndsAt && new Date(subscription.trialEndsAt).getTime();
+    const trialEndsAt = subscription.trialEndsAt
+      ? new Date(subscription.trialEndsAt).getTime()
+      : null;
 
     if (!trialEndsAt || trialEndsAt <= now) {
       return "expired";
@@ -35,9 +36,9 @@ function getEffectiveSubscriptionStatus(subscription) {
   }
 
   if (subscription.status === "active") {
-    const currentPeriodEnd =
-      subscription.currentPeriodEnd &&
-      new Date(subscription.currentPeriodEnd).getTime();
+    const currentPeriodEnd = subscription.currentPeriodEnd
+      ? new Date(subscription.currentPeriodEnd).getTime()
+      : null;
 
     if (currentPeriodEnd && currentPeriodEnd <= now) {
       return "expired";
@@ -51,9 +52,9 @@ function getEffectiveSubscriptionStatus(subscription) {
    * of a period that has already been paid for.
    */
   if (subscription.status === "cancelled") {
-    const currentPeriodEnd =
-      subscription.currentPeriodEnd &&
-      new Date(subscription.currentPeriodEnd).getTime();
+    const currentPeriodEnd = subscription.currentPeriodEnd
+      ? new Date(subscription.currentPeriodEnd).getTime()
+      : null;
 
     if (currentPeriodEnd && currentPeriodEnd > now) {
       return "active";
@@ -77,14 +78,40 @@ function isSubscriptionPaymentRequired(subscription) {
   return ["none", "expired", "past_due", "cancelled"].includes(status);
 }
 
+function getSubscriptionAccess(subscription) {
+  const status = getEffectiveSubscriptionStatus(subscription);
+  const hasAccess = hasActiveArtisanAccess(subscription);
+  const paymentRequired = isSubscriptionPaymentRequired(subscription);
+
+  return {
+    status,
+    hasAccess,
+    paymentRequired,
+
+    isVisibleInMarketplace: hasAccess,
+    canReceiveBookings: hasAccess,
+    canManageBookings: hasAccess,
+    canCreatePortfolio: hasAccess,
+    canUpdatePortfolio: hasAccess,
+    canDeletePortfolio: hasAccess,
+
+    profileVisibility: hasAccess ? "visible" : "hidden",
+
+    restrictionCode: hasAccess ? null : "SUBSCRIPTION_REQUIRED",
+
+    restrictionMessage: hasAccess
+      ? null
+      : "Your DemandPoint Professional subscription is inactive. Renew your subscription to continue.",
+  };
+}
+
 function serializeSubscription(subscription) {
   if (!subscription) {
     return null;
   }
 
-  const status = getEffectiveSubscriptionStatus(subscription);
-
-  const isTrialing = status === "trialing";
+  const access = getSubscriptionAccess(subscription);
+  const isTrialing = access.status === "trialing";
 
   const relevantEndDate = isTrialing
     ? subscription.trialEndsAt
@@ -95,40 +122,33 @@ function serializeSubscription(subscription) {
     planKey: subscription.planKey,
     planName: ARTISAN_PLAN.name,
 
-    status,
-
-    hasAccess: hasActiveArtisanAccess(subscription),
-
-    paymentRequired: isSubscriptionPaymentRequired(subscription),
+    status: access.status,
+    hasAccess: access.hasAccess,
+    paymentRequired: access.paymentRequired,
 
     trialStartedAt: subscription.trialStartedAt,
-
     trialEndsAt: subscription.trialEndsAt,
 
     currentPeriodStart: subscription.currentPeriodStart,
-
     currentPeriodEnd: subscription.currentPeriodEnd,
 
     daysRemaining: calculateDaysRemaining(relevantEndDate),
 
     price: ARTISAN_PLAN.priceNaira,
-
     amountKobo: subscription.amountKobo,
-
     currency: subscription.currency,
 
     billingInterval: "monthly",
-
     autoRenew: subscription.autoRenew,
 
     lastPaymentAt: subscription.lastPaymentAt,
-
     nextPaymentAt: subscription.nextPaymentAt,
 
     cancelledAt: subscription.cancelledAt,
 
-    createdAt: subscription.createdAt,
+    access,
 
+    createdAt: subscription.createdAt,
     updatedAt: subscription.updatedAt,
   };
 }
@@ -138,5 +158,6 @@ module.exports = {
   getEffectiveSubscriptionStatus,
   hasActiveArtisanAccess,
   isSubscriptionPaymentRequired,
+  getSubscriptionAccess,
   serializeSubscription,
 };

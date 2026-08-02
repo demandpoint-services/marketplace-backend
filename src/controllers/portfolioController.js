@@ -11,6 +11,10 @@ const MAX_FILE_SIZES = {
   document: 10 * 1024 * 1024,
 };
 
+const { getSubscriptionForUser } = require("../services/subscriptionService");
+
+const { getSubscriptionAccess } = require("../utils/subscriptionStatus");
+
 // GET /api/portfolio
 exports.getMyPortfolio = async (req, res) => {
   try {
@@ -31,25 +35,47 @@ exports.getMyPortfolio = async (req, res) => {
 // GET /api/portfolio/artisan/:artisanId
 exports.getArtisanPortfolio = async (req, res) => {
   try {
-    const artisanProfile = await ArtisanProfile.findById(req.params.artisanId);
+    const artisanProfile = await ArtisanProfile.findById(
+      req.params.artisanId,
+    ).populate("user", "isSuspended");
 
-    if (!artisanProfile) {
+    if (
+      !artisanProfile ||
+      !artisanProfile.user ||
+      artisanProfile.user.isSuspended
+    ) {
       return res.status(404).json({
-        message: "Artisan not found",
+        success: false,
+        message: "Artisan not found.",
+      });
+    }
+
+    const subscription = await getSubscriptionForUser(artisanProfile.user._id);
+
+    const access = getSubscriptionAccess(subscription);
+
+    if (!access.isVisibleInMarketplace) {
+      return res.status(404).json({
+        success: false,
+        code: "ARTISAN_UNAVAILABLE",
+        message: "This professional is currently unavailable.",
       });
     }
 
     const items = await PortfolioItem.find({
-      artisan: artisanProfile.user,
+      artisan: artisanProfile.user._id,
     }).sort({
       featured: -1,
       createdAt: -1,
     });
 
     return res.status(200).json(items);
-  } catch (err) {
+  } catch (error) {
+    console.error("Get artisan portfolio error:", error);
+
     return res.status(500).json({
-      message: "Unable to retrieve artisan portfolio",
+      success: false,
+      message: "Unable to retrieve artisan portfolio.",
     });
   }
 };

@@ -6,7 +6,12 @@ const {
   getOrCreateArtisanSubscription,
 } = require("../services/subscriptionService");
 
-const { serializeSubscription } = require("../utils/subscriptionStatus");
+const Subscription = require("../models/Subscription");
+
+const {
+  getSubscriptionAccess,
+  serializeSubscription,
+} = require("../utils/subscriptionStatus");
 
 // Create artisan profile
 exports.createProfile = async (req, res) => {
@@ -76,20 +81,59 @@ exports.getArtisans = async (req, res) => {
     const artisans = await ArtisanProfile.find()
       .populate(
         "user",
-        "name email phone profileImage bio location isVerified isSuspended createdAt",
+        "name email phone profileImage bio location isVerified isSuspended createdAt lastSeen",
       )
       .sort({ createdAt: -1 });
 
-    const activeArtisans = artisans.filter(
-      (artisan) => artisan.user && artisan.user.isSuspended !== true,
+    const artisanUserIds = artisans
+      .filter((artisan) => artisan.user)
+      .map((artisan) => artisan.user._id);
+
+    const subscriptions = await Subscription.find({
+      user: {
+        $in: artisanUserIds,
+      },
+    });
+
+    const subscriptionMap = new Map(
+      subscriptions.map((subscription) => [
+        String(subscription.user),
+        subscription,
+      ]),
     );
 
-    return res.status(200).json(activeArtisans);
+    const visibleArtisans = artisans
+      .filter((artisan) => {
+        if (!artisan.user || artisan.user.isSuspended === true) {
+          return false;
+        }
+
+        const subscription = subscriptionMap.get(String(artisan.user._id));
+
+        const access = getSubscriptionAccess(subscription);
+
+        return access.isVisibleInMarketplace;
+      })
+      .map((artisan) => {
+        const artisanObject = artisan.toObject();
+
+        const subscription = subscriptionMap.get(String(artisan.user._id));
+
+        return {
+          ...artisanObject,
+          online: isUserOnline(artisan.user.lastSeen),
+          subscription: serializeSubscription(subscription),
+          marketplaceAccess: getSubscriptionAccess(subscription),
+        };
+      });
+
+    return res.status(200).json(visibleArtisans);
   } catch (error) {
     console.error("Get artisans error:", error);
 
     return res.status(500).json({
-      message: error.message || "Unable to retrieve artisans",
+      success: false,
+      message: error.message || "Unable to retrieve artisans.",
     });
   }
 };
@@ -99,21 +143,42 @@ exports.getArtisan = async (req, res) => {
   try {
     const artisan = await ArtisanProfile.findById(req.params.id).populate(
       "user",
-      "name email phone profileImage bio location isVerified isSuspended createdAt",
+      "name email phone profileImage bio location isVerified isSuspended createdAt lastSeen",
     );
 
     if (!artisan || !artisan.user || artisan.user.isSuspended) {
       return res.status(404).json({
-        message: "Artisan not found",
+        success: false,
+        message: "Artisan not found.",
       });
     }
 
-    return res.status(200).json(artisan);
+    const subscription = await Subscription.findOne({
+      user: artisan.user._id,
+    });
+
+    const access = getSubscriptionAccess(subscription);
+
+    if (!access.isVisibleInMarketplace) {
+      return res.status(404).json({
+        success: false,
+        code: "ARTISAN_UNAVAILABLE",
+        message: "This professional is currently unavailable.",
+      });
+    }
+
+    return res.status(200).json({
+      ...artisan.toObject(),
+      online: isUserOnline(artisan.user.lastSeen),
+      subscription: serializeSubscription(subscription),
+      marketplaceAccess: access,
+    });
   } catch (error) {
     console.error("Get artisan error:", error);
 
     return res.status(500).json({
-      message: error.message || "Unable to retrieve artisan",
+      success: false,
+      message: error.message || "Unable to retrieve artisan.",
     });
   }
 };

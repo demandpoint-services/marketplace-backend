@@ -19,6 +19,13 @@ const allowedStatusTransitions = {
   cancelled: [],
 };
 
+const { getSubscriptionForUser } = require("../services/subscriptionService");
+
+const {
+  getSubscriptionAccess,
+  serializeSubscription,
+} = require("../utils/subscriptionStatus");
+
 // CREATE BOOKING
 exports.createBooking = async (req, res) => {
   try {
@@ -68,6 +75,21 @@ exports.createBooking = async (req, res) => {
     if (artisanProfile.user.isSuspended) {
       return res.status(403).json({
         message: "This artisan is currently unavailable.",
+      });
+    }
+
+    const subscription = await getSubscriptionForUser(artisanProfile.user._id);
+
+    const access = getSubscriptionAccess(subscription);
+
+    if (!access.canReceiveBookings) {
+      return res.status(403).json({
+        success: false,
+        code: "ARTISAN_SUBSCRIPTION_INACTIVE",
+        message:
+          "This professional is currently unavailable and cannot receive new bookings.",
+        subscription: serializeSubscription(subscription),
+        access,
       });
     }
 

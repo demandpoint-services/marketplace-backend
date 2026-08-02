@@ -2,7 +2,10 @@ const Subscription = require("../models/Subscription");
 
 const { SUBSCRIPTION_PLANS } = require("../constants/subscriptionPlans");
 
-const { serializeSubscription } = require("../utils/subscriptionStatus");
+const {
+  getEffectiveSubscriptionStatus,
+  serializeSubscription,
+} = require("../utils/subscriptionStatus");
 
 const ARTISAN_PLAN = SUBSCRIPTION_PLANS.ARTISAN_MONTHLY;
 
@@ -32,30 +35,23 @@ async function getOrCreateArtisanSubscription(userId) {
   try {
     subscription = await Subscription.create({
       user: userId,
-
       planKey: ARTISAN_PLAN.key,
-
       status: "trialing",
-
       trialStartedAt: now,
-
       trialEndsAt: getTrialEndDate(now),
-
       amountKobo: ARTISAN_PLAN.amountKobo,
-
       currency: ARTISAN_PLAN.currency,
-
       provider: "paystack",
 
-      autoRenew: true,
+      /*
+       * A free trial does not yet have an authorised
+       * recurring Paystack subscription.
+       */
+      autoRenew: false,
     });
 
     return subscription;
   } catch (error) {
-    /*
-     * Protect against two simultaneous requests trying
-     * to create the same user's subscription.
-     */
     if (error?.code === 11000) {
       return Subscription.findOne({
         user: userId,
@@ -80,6 +76,7 @@ async function getSubscriptionSummary(userId) {
 
 module.exports = {
   getTrialEndDate,
+  isSubscriptionPaymentRequired,
   getOrCreateArtisanSubscription,
   getSubscriptionForUser,
   getSubscriptionSummary,

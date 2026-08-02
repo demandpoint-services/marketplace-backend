@@ -1,4 +1,5 @@
 const express = require("express");
+
 const router = express.Router();
 
 const {
@@ -10,14 +11,22 @@ const {
 } = require("../controllers/bookingController");
 
 const { protect, artisanOnly } = require("../middleware/authMiddleware");
+const requireActiveSubscription = require("../middleware/requireActiveSubscription");
 
 // CLIENT
 router.post("/", protect, createBooking);
 router.get("/my", protect, getMyBookings);
+router.post("/:id/message", protect, sendBookingMessage);
 
 // ARTISAN
 router.get("/artisan", protect, artisanOnly, getArtisanBookings);
-router.post("/:id/message", protect, sendBookingMessage);
-router.put("/:id", protect, artisanOnly, updateBookingStatus);
+
+router.put(
+  "/:id",
+  protect,
+  artisanOnly,
+  requireActiveSubscription,
+  updateBookingStatus,
+);
 
 module.exports = router;

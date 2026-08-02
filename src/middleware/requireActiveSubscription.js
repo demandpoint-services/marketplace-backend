@@ -3,7 +3,7 @@ const {
 } = require("../services/subscriptionService");
 
 const {
-  hasActiveArtisanAccess,
+  getSubscriptionAccess,
   serializeSubscription,
 } = require("../utils/subscriptionStatus");
 
@@ -12,28 +12,26 @@ async function requireActiveSubscription(req, res, next) {
     if (req.user?.role !== "artisan") {
       return res.status(403).json({
         success: false,
+        code: "ARTISAN_ACCESS_ONLY",
         message: "Artisan access only.",
       });
     }
 
     const subscription = await getOrCreateArtisanSubscription(req.user._id);
+    const access = getSubscriptionAccess(subscription);
 
-    const subscriptionData = serializeSubscription(subscription);
-
-    if (!hasActiveArtisanAccess(subscription)) {
+    if (!access.hasAccess) {
       return res.status(403).json({
         success: false,
-
         code: "SUBSCRIPTION_REQUIRED",
-
-        message:
-          "Your DemandPoint Professional subscription is inactive. Renew your subscription to continue.",
-
-        subscription: subscriptionData,
+        message: access.restrictionMessage,
+        subscription: serializeSubscription(subscription),
+        access,
       });
     }
 
     req.subscription = subscription;
+    req.subscriptionAccess = access;
 
     return next();
   } catch (error) {
