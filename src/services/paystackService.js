@@ -18,9 +18,12 @@ async function parsePaystackResponse(response) {
   try {
     result = JSON.parse(responseText);
   } catch {
-    throw new Error(
+    const error = new Error(
       `Paystack returned an invalid response with status ${response.status}.`,
     );
+
+    error.status = response.status;
+    throw error;
   }
 
   if (!response.ok || result?.status !== true) {
@@ -57,8 +60,10 @@ async function initializeTransaction({
       plan: planCode,
       callback_url: callbackUrl,
 
-      // Card payments provide a reusable authorization
-      // needed for automatic subscription renewals.
+      /*
+       * Card payments supply the reusable authorization needed
+       * for subsequent recurring subscription charges.
+       */
       channels: ["card"],
 
       metadata,
@@ -69,6 +74,10 @@ async function initializeTransaction({
 }
 
 async function verifyTransaction(reference) {
+  if (!reference) {
+    throw new Error("Paystack transaction reference is required.");
+  }
+
   const encodedReference = encodeURIComponent(reference);
 
   const response = await fetch(
@@ -103,8 +112,36 @@ async function fetchPlan(planCode) {
   return parsePaystackResponse(response);
 }
 
+async function disableSubscription({ code, token }) {
+  if (!code || !token) {
+    const error = new Error(
+      "Paystack subscription code and email token are required.",
+    );
+
+    error.status = 409;
+    error.code = "PAYSTACK_SUBSCRIPTION_DETAILS_MISSING";
+
+    throw error;
+  }
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/subscription/disable`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getSecretKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      code,
+      token,
+    }),
+  });
+
+  return parsePaystackResponse(response);
+}
+
 module.exports = {
   initializeTransaction,
   verifyTransaction,
   fetchPlan,
+  disableSubscription,
 };

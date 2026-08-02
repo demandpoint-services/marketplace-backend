@@ -563,14 +563,21 @@ async function handleSubscriptionNotRenew(data) {
 
   subscription.autoRenew = false;
   subscription.providerStatus = "non-renewing";
+  subscription.cancelledAt = subscription.cancelledAt || new Date();
   subscription.webhookUpdatedAt = new Date();
 
-  const nextPaymentAt = parseDate(data?.next_payment_date);
+  /*
+   * Preserve the currentPeriodEnd because the user should retain
+   * access until the already-paid period ends.
+   */
+  const periodEnd =
+    parseDate(data?.next_payment_date) || parseDate(data?.period_end);
 
-  if (nextPaymentAt) {
-    subscription.nextPaymentAt = nextPaymentAt;
-    subscription.currentPeriodEnd = nextPaymentAt;
+  if (periodEnd) {
+    subscription.currentPeriodEnd = periodEnd;
   }
+
+  subscription.nextPaymentAt = null;
 
   await subscription.save();
 
@@ -592,24 +599,35 @@ async function handleSubscriptionDisable(data) {
 
   const disabledAt = new Date();
 
+  const providerPeriodEnd =
+    parseDate(data?.next_payment_date) || parseDate(data?.period_end);
+
+  const existingPeriodEnd = parseDate(subscription.currentPeriodEnd);
+
+  let accessEndDate = existingPeriodEnd;
+
+  if (
+    providerPeriodEnd &&
+    (!accessEndDate || providerPeriodEnd.getTime() > accessEndDate.getTime())
+  ) {
+    accessEndDate = providerPeriodEnd;
+  }
+
   subscription.status = "cancelled";
   subscription.providerStatus = data?.status || "cancelled";
   subscription.autoRenew = false;
-  subscription.cancelledAt = disabledAt;
+  subscription.cancelledAt = subscription.cancelledAt || disabledAt;
   subscription.nextPaymentAt = null;
   subscription.webhookUpdatedAt = disabledAt;
 
-  const periodEnd =
-    parseDate(data?.next_payment_date) || parseDate(data?.period_end);
-
-  if (periodEnd && periodEnd > disabledAt) {
-    subscription.currentPeriodEnd = periodEnd;
-  } else if (
-    !subscription.currentPeriodEnd ||
-    subscription.currentPeriodEnd < disabledAt
-  ) {
-    subscription.currentPeriodEnd = disabledAt;
-  }
+  /*
+   * Preserve access through any period already paid for.
+   * If no paid-period end exists, access ends when Paystack disables it.
+   */
+  subscription.currentPeriodEnd =
+    accessEndDate && accessEndDate.getTime() > disabledAt.getTime()
+      ? accessEndDate
+      : disabledAt;
 
   await subscription.save();
 

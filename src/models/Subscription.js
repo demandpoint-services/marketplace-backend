@@ -97,7 +97,7 @@ const subscriptionSchema = new mongoose.Schema(
 
     autoRenew: {
       type: Boolean,
-      default: true,
+      default: false,
     },
 
     lastPaymentAt: {

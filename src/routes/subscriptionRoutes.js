@@ -7,19 +7,27 @@ const {
   initializeSubscriptionPayment,
   verifySubscriptionPayment,
   handlePaystackWebhook,
+  cancelAutomaticRenewal,
 } = require("../controllers/subscriptionController");
 
-const { protect } = require("../middleware/authMiddleware");
+const { protect, artisanOnly } = require("../middleware/authMiddleware");
 
 /*
  * Public Paystack route.
  */
 router.post("/webhook/paystack", handlePaystackWebhook);
 
-router.get("/me", protect, getMySubscription);
+router.get("/me", protect, artisanOnly, getMySubscription);
 
-router.post("/initialize", protect, initializeSubscriptionPayment);
+router.post("/initialize", protect, artisanOnly, initializeSubscriptionPayment);
 
-router.get("/verify/:reference", protect, verifySubscriptionPayment);
+router.get(
+  "/verify/:reference",
+  protect,
+  artisanOnly,
+  verifySubscriptionPayment,
+);
+
+router.patch("/cancel-renewal", protect, cancelAutomaticRenewal);
 
 module.exports = router;

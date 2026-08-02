@@ -20,6 +20,7 @@ const {
 const {
   initializeTransaction,
   verifyTransaction,
+  disableSubscription,
   fetchPlan,
 } = require("../services/paystackService");
 
@@ -579,6 +580,105 @@ exports.handlePaystackWebhook = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Unable to process Paystack webhook.",
+    });
+  }
+};
+
+// PATCH /api/subscriptions/cancel-renewal
+exports.cancelAutomaticRenewal = async (req, res) => {
+  try {
+    if (req.user.role !== "artisan") {
+      return res.status(403).json({
+        success: false,
+        message: "Only artisan accounts have subscriptions.",
+      });
+    }
+
+    const subscription = await getOrCreateArtisanSubscription(req.user._id);
+
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: "Subscription not found.",
+      });
+    }
+
+    /*
+     * Trial users have not yet created a paid recurring subscription
+     * with Paystack, so there is nothing to cancel.
+     */
+    if (
+      subscription.status === "trialing" &&
+      !subscription.paystackSubscriptionCode
+    ) {
+      subscription.autoRenew = false;
+
+      await subscription.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Automatic renewal is not enabled during your free trial.",
+        subscription: serializeSubscription(subscription),
+      });
+    }
+
+    if (!subscription.autoRenew) {
+      return res.status(200).json({
+        success: true,
+        alreadyCancelled: true,
+        message: "Automatic renewal is already disabled.",
+        subscription: serializeSubscription(subscription),
+      });
+    }
+
+    if (
+      !subscription.paystackSubscriptionCode ||
+      !subscription.paystackEmailToken
+    ) {
+      return res.status(409).json({
+        success: false,
+        code: "PAYSTACK_SUBSCRIPTION_DETAILS_MISSING",
+        message:
+          "We could not find the Paystack subscription information required to cancel renewal. Please contact support.",
+      });
+    }
+
+    await disableSubscription({
+      code: subscription.paystackSubscriptionCode,
+      token: subscription.paystackEmailToken,
+    });
+
+    /*
+     * Do not immediately expire or cancel access.
+     * The artisan remains active through the paid period.
+     */
+    subscription.autoRenew = false;
+    subscription.providerStatus = "non-renewing";
+    subscription.cancelledAt = new Date();
+    subscription.webhookUpdatedAt = new Date();
+
+    await subscription.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Automatic renewal has been cancelled. Your subscription will remain active until the end of the current billing period.",
+      subscription: serializeSubscription(subscription),
+    });
+  } catch (error) {
+    console.error("Cancel subscription renewal error:", error);
+
+    const status =
+      Number.isInteger(error?.status) && error.status >= 400
+        ? error.status
+        : 500;
+
+    return res.status(status).json({
+      success: false,
+      message:
+        status === 500
+          ? "Unable to cancel automatic renewal. Please try again."
+          : error.message,
     });
   }
 };
