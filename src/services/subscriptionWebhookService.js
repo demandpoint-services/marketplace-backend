@@ -411,8 +411,6 @@ async function handleChargeSuccess(data) {
     paymentSource: "webhook",
   });
 
-  const isRenewal = Boolean(previousLastPaymentAt);
-
   await notifyPaymentSuccess({
     subscription,
     payment,
