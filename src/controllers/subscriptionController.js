@@ -6,6 +6,11 @@ const SubscriptionPayment = require("../models/SubscriptionPayment");
 const PaystackWebhookEvent = require("../models/PaystackWebhookEvent");
 
 const {
+  notifyPaymentSuccess,
+  notifyRenewalCancelled,
+} = require("../services/subscriptionCommunicationService");
+
+const {
   verifyPaystackSignature,
   processPaystackSubscriptionEvent,
   getReference,
@@ -410,19 +415,19 @@ exports.verifySubscriptionPayment = async (req, res) => {
 
     const currentPeriodEnd = addOneCalendarMonth(paidAt);
 
+    const previousLastPaymentAt = subscription.lastPaymentAt
+      ? new Date(subscription.lastPaymentAt)
+      : null;
+
     subscription.status = "active";
+    subscription.providerStatus = "active";
     subscription.currentPeriodStart = paidAt;
     subscription.currentPeriodEnd = currentPeriodEnd;
-
     subscription.amountKobo = ARTISAN_PLAN.amountKobo;
-
     subscription.currency = ARTISAN_PLAN.currency;
-
     subscription.paystackPlanCode = process.env.PAYSTACK_PLAN_CODE;
-
     subscription.lastPaymentAt = paidAt;
     subscription.nextPaymentAt = currentPeriodEnd;
-
     subscription.autoRenew = true;
     subscription.cancelledAt = null;
 
@@ -430,18 +435,47 @@ exports.verifySubscriptionPayment = async (req, res) => {
       subscription.paystackCustomerCode = transaction.customer.customer_code;
     }
 
+    if (transaction.subscription?.subscription_code) {
+      subscription.paystackSubscriptionCode =
+        transaction.subscription.subscription_code;
+    }
+
+    if (transaction.subscription?.email_token) {
+      subscription.paystackEmailToken = transaction.subscription.email_token;
+    }
+
+    if (transaction.authorization?.authorization_code) {
+      subscription.paystackAuthorizationCode =
+        transaction.authorization.authorization_code;
+    }
+
     await subscription.save();
 
     payment.status = "success";
+    payment.paymentSource = "callback";
     payment.channel = transaction.channel || null;
-
     payment.gatewayResponse = transaction.gateway_response || null;
-
+    payment.customerChargedKobo = Number(
+      transaction.amount || payment.amountKobo,
+    );
+    payment.requestedAmountKobo = Number(
+      transaction.requested_amount ?? payment.amountKobo,
+    );
+    payment.feesKobo = Number(transaction.fees || 0);
+    payment.paystackTransactionId = transaction.id || null;
+    payment.paystackSubscriptionCode =
+      transaction.subscription?.subscription_code || null;
     payment.paidAt = paidAt;
     payment.verifiedAt = new Date();
     payment.failureReason = null;
 
     await payment.save();
+
+    await notifyPaymentSuccess({
+      subscription,
+      payment,
+      isRenewal: Boolean(previousLastPaymentAt),
+    });
 
     return res.status(200).json({
       success: true,
@@ -655,9 +689,14 @@ exports.cancelAutomaticRenewal = async (req, res) => {
     subscription.autoRenew = false;
     subscription.providerStatus = "non-renewing";
     subscription.cancelledAt = new Date();
+    subscription.nextPaymentAt = null;
     subscription.webhookUpdatedAt = new Date();
 
     await subscription.save();
+
+    await notifyRenewalCancelled({
+      subscription,
+    });
 
     return res.status(200).json({
       success: true,

@@ -60,6 +60,21 @@ const notificationPreferenceSchema = new mongoose.Schema(
       default: true,
     },
 
+    subscriptionUpdates: {
+      type: Boolean,
+      default: true,
+    },
+
+    trialReminders: {
+      type: Boolean,
+      default: true,
+    },
+
+    renewalReminders: {
+      type: Boolean,
+      default: true,
+    },
+
     passwordChanged: {
       type: Boolean,
       default: true,

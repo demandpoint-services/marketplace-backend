@@ -14,6 +14,9 @@ const editableFields = [
   "paymentSuccess",
   "paymentFailed",
   "refundProcessed",
+  "subscriptionUpdates",
+  "trialReminders",
+  "renewalReminders",
 
   "passwordChanged",
   "emailChanged",

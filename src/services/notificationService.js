@@ -1,5 +1,4 @@
 const Notification = require("../models/Notification");
-
 const NotificationPreference = require("../models/NotificationPreference");
 
 const {
@@ -24,6 +23,14 @@ const preferenceMap = Object.freeze({
   [NOTIFICATION_TYPES.PAYMENT_SUCCESS]: "paymentSuccess",
   [NOTIFICATION_TYPES.PAYMENT_FAILED]: "paymentFailed",
   [NOTIFICATION_TYPES.REFUND_PROCESSED]: "refundProcessed",
+
+  [NOTIFICATION_TYPES.SUBSCRIPTION_TRIAL_STARTED]: "subscriptionUpdates",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_TRIAL_ENDING]: "trialReminders",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_TRIAL_EXPIRED]: "trialReminders",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_ACTIVATED]: "subscriptionUpdates",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_RENEWED]: "subscriptionUpdates",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_RENEWAL_CANCELLED]: "subscriptionUpdates",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED]: "subscriptionUpdates",
 
   [NOTIFICATION_TYPES.PASSWORD_CHANGED]: "passwordChanged",
   [NOTIFICATION_TYPES.EMAIL_CHANGED]: "emailChanged",
@@ -68,17 +75,12 @@ async function shouldCreateNotification(recipientId, type) {
   return preferences[preferenceField] !== false;
 }
 
-async function createNotification({
+function validateNotificationInput({
   recipient,
-  actor = null,
   type,
   category,
   title,
   message,
-  actionUrl = "",
-  resourceType = null,
-  resourceId = null,
-  metadata = {},
 }) {
   if (!recipient) {
     throw new Error("Notification recipient is required.");
@@ -99,6 +101,28 @@ async function createNotification({
   if (!message?.trim()) {
     throw new Error("Notification message is required.");
   }
+}
+
+async function createNotification({
+  recipient,
+  actor = null,
+  type,
+  category,
+  title,
+  message,
+  actionUrl = "",
+  resourceType = null,
+  resourceId = null,
+  dedupeKey = null,
+  metadata = {},
+}) {
+  validateNotificationInput({
+    recipient,
+    type,
+    category,
+    title,
+    message,
+  });
 
   const allowed = await shouldCreateNotification(recipient, type);
 
@@ -106,7 +130,7 @@ async function createNotification({
     return null;
   }
 
-  return Notification.create({
+  const notificationData = {
     recipient,
     actor,
     type,
@@ -116,8 +140,57 @@ async function createNotification({
     actionUrl,
     resourceType,
     resourceId,
+    dedupeKey: dedupeKey?.trim() || null,
     metadata,
-  });
+  };
+
+  /*
+   * When no dedupe key is supplied, create the notification normally.
+   */
+  if (!notificationData.dedupeKey) {
+    return Notification.create(notificationData);
+  }
+
+  /*
+   * When a dedupe key is supplied, create only if an equivalent
+   * notification has not already been stored for this recipient.
+   */
+  return Notification.findOneAndUpdate(
+    {
+      recipient,
+      dedupeKey: notificationData.dedupeKey,
+    },
+    {
+      $setOnInsert: notificationData,
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+      runValidators: true,
+    },
+  );
+}
+
+async function createNotificationSafely(payload, context = "Notification") {
+  try {
+    return await createNotification(payload);
+  } catch (error) {
+    /*
+     * Duplicate-key races are harmless because another request already
+     * created the notification successfully.
+     */
+    if (error?.code === 11000) {
+      return Notification.findOne({
+        recipient: payload.recipient,
+        dedupeKey: payload.dedupeKey,
+      });
+    }
+
+    console.error(`${context} creation error:`, error);
+
+    return null;
+  }
 }
 
 async function createManyNotifications(notifications = []) {
@@ -126,7 +199,9 @@ async function createManyNotifications(notifications = []) {
   }
 
   const results = await Promise.allSettled(
-    notifications.map((notification) => createNotification(notification)),
+    notifications.map((notification) =>
+      createNotificationSafely(notification, "Bulk notification"),
+    ),
   );
 
   results.forEach((result) => {
@@ -142,6 +217,7 @@ async function createManyNotifications(notifications = []) {
 
 module.exports = {
   createNotification,
+  createNotificationSafely,
   createManyNotifications,
   getOrCreatePreferences,
   shouldCreateNotification,

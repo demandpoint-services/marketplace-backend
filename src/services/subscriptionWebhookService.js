@@ -4,6 +4,13 @@ const User = require("../models/User");
 const Subscription = require("../models/Subscription");
 const SubscriptionPayment = require("../models/SubscriptionPayment");
 
+const {
+  notifyPaymentSuccess,
+  notifyPaymentFailed,
+  notifyRenewalCancelled,
+  notifySubscriptionExpired,
+} = require("./subscriptionCommunicationService");
+
 const { SUBSCRIPTION_PLANS } = require("../constants/subscriptionPlans");
 
 const ARTISAN_PLAN = SUBSCRIPTION_PLANS.ARTISAN_MONTHLY;
@@ -144,19 +151,27 @@ async function findSubscriptionFromWebhook(data) {
   const queries = [];
 
   if (subscriptionCode) {
-    queries.push({ paystackSubscriptionCode: subscriptionCode });
+    queries.push({
+      paystackSubscriptionCode: subscriptionCode,
+    });
   }
 
   if (customerCode) {
-    queries.push({ paystackCustomerCode: customerCode });
+    queries.push({
+      paystackCustomerCode: customerCode,
+    });
   }
 
   if (metadata.subscriptionId) {
-    queries.push({ _id: metadata.subscriptionId });
+    queries.push({
+      _id: metadata.subscriptionId,
+    });
   }
 
   if (metadata.userId) {
-    queries.push({ user: metadata.userId });
+    queries.push({
+      user: metadata.userId,
+    });
   }
 
   if (queries.length > 0) {
@@ -172,7 +187,9 @@ async function findSubscriptionFromWebhook(data) {
   const reference = getReference(data);
 
   if (reference) {
-    const payment = await SubscriptionPayment.findOne({ reference });
+    const payment = await SubscriptionPayment.findOne({
+      reference,
+    });
 
     if (payment) {
       return Subscription.findById(payment.subscription);
@@ -183,12 +200,14 @@ async function findSubscriptionFromWebhook(data) {
 
   if (email) {
     const user = await User.findOne({
-      email: email.toLowerCase(),
+      email: email.trim().toLowerCase(),
       role: "artisan",
     }).select("_id");
 
     if (user) {
-      return Subscription.findOne({ user: user._id });
+      return Subscription.findOne({
+        user: user._id,
+      });
     }
   }
 
@@ -280,17 +299,50 @@ async function handleChargeSuccess(data) {
     };
   }
 
+  const reference = getReference(data);
+
+  const previousSuccessfulPayment = await SubscriptionPayment.findOne({
+    subscription: subscription._id,
+    status: "success",
+    ...(reference
+      ? {
+          reference: {
+            $ne: reference,
+          },
+        }
+      : {}),
+  }).select("_id");
+
+  /*
+   * Capture the previous payment before updating the subscription.
+   * If a previous successful payment exists, this payment is a renewal.
+   */
+  const isRenewal = Boolean(previousSuccessfulPayment);
+
   const amount = Number(
-    data?.requested_amount ?? data?.amount ?? ARTISAN_PLAN.amountKobo,
+    data?.requested_amount ??
+      data?.transaction?.requested_amount ??
+      data?.amount ??
+      data?.transaction?.amount ??
+      ARTISAN_PLAN.amountKobo,
+  );
+
+  const chargedAmount = Number(
+    data?.amount ?? data?.transaction?.amount ?? ARTISAN_PLAN.amountKobo,
   );
 
   const currency = String(
-    data?.currency || ARTISAN_PLAN.currency,
+    data?.currency || data?.transaction?.currency || ARTISAN_PLAN.currency,
   ).toUpperCase();
 
+  /*
+   * Paystack may charge the customer slightly more when transaction
+   * fees are passed on. requested_amount is therefore the preferred
+   * value for verifying the actual subscription price.
+   */
   if (
     amount !== ARTISAN_PLAN.amountKobo &&
-    Number(data?.amount) !== ARTISAN_PLAN.amountKobo
+    chargedAmount !== ARTISAN_PLAN.amountKobo
   ) {
     throw new Error(
       `Webhook payment amount mismatch. Received ${amount} kobo.`,
@@ -301,33 +353,42 @@ async function handleChargeSuccess(data) {
     throw new Error(`Webhook payment currency mismatch. Received ${currency}.`);
   }
 
-  const paidAt = parseDate(data?.paid_at, new Date());
+  const paidAt =
+    parseDate(data?.paid_at) ||
+    parseDate(data?.paidAt) ||
+    parseDate(data?.transaction?.paid_at) ||
+    new Date();
 
   const nextPaymentAt =
     parseDate(data?.subscription?.next_payment_date) ||
     parseDate(data?.next_payment_date) ||
     addOneCalendarMonth(paidAt);
 
+  const customerCode = getCustomerCode(data);
+  const subscriptionCode = getSubscriptionCode(data);
+  const planCode = getPlanCode(data);
+
   subscription.status = "active";
   subscription.providerStatus = "active";
+
   subscription.currentPeriodStart = paidAt;
   subscription.currentPeriodEnd = nextPaymentAt;
+
   subscription.amountKobo = ARTISAN_PLAN.amountKobo;
   subscription.currency = ARTISAN_PLAN.currency;
+
   subscription.paystackPlanCode =
-    getPlanCode(data) ||
-    subscription.paystackPlanCode ||
-    process.env.PAYSTACK_PLAN_CODE;
+    planCode || subscription.paystackPlanCode || process.env.PAYSTACK_PLAN_CODE;
+
   subscription.lastPaymentAt = paidAt;
   subscription.nextPaymentAt = nextPaymentAt;
+
   subscription.lastPaymentFailureAt = null;
   subscription.paymentFailureReason = null;
+
   subscription.autoRenew = true;
   subscription.cancelledAt = null;
   subscription.webhookUpdatedAt = new Date();
-
-  const customerCode = getCustomerCode(data);
-  const subscriptionCode = getSubscriptionCode(data);
 
   if (customerCode) {
     subscription.paystackCustomerCode = customerCode;
@@ -344,15 +405,25 @@ async function handleChargeSuccess(data) {
 
   await subscription.save();
 
-  await upsertSuccessfulPayment({
+  const payment = await upsertSuccessfulPayment({
     subscription,
     data,
     paymentSource: "webhook",
   });
 
+  const isRenewal = Boolean(previousLastPaymentAt);
+
+  await notifyPaymentSuccess({
+    subscription,
+    payment,
+    isRenewal,
+  });
+
   return {
     handled: true,
     subscriptionId: subscription._id,
+    paymentId: payment?._id || null,
+    isRenewal,
   };
 }
 
@@ -456,11 +527,27 @@ async function handleInvoiceUpdate(data) {
   ) {
     return handleChargeSuccess({
       ...transaction,
+
+      amount: transaction?.amount ?? data?.amount,
+
+      requested_amount:
+        transaction?.requested_amount ??
+        data?.requested_amount ??
+        ARTISAN_PLAN.amountKobo,
+
+      currency:
+        transaction?.currency ?? data?.currency ?? ARTISAN_PLAN.currency,
+
       customer: data?.customer || transaction?.customer,
+
       subscription: data?.subscription,
+
       subscription_code: getSubscriptionCode(data),
+
       invoice_code: getInvoiceCode(data),
+
       metadata: data?.metadata || transaction?.metadata,
+
       paid_at:
         transaction?.paid_at || data?.paid_at || data?.period_end || new Date(),
     });
@@ -476,6 +563,7 @@ async function handleInvoiceUpdate(data) {
   }
 
   subscription.providerStatus = data?.status || "invoice_updated";
+
   subscription.webhookUpdatedAt = new Date();
 
   await subscription.save();
@@ -512,27 +600,41 @@ async function handleInvoicePaymentFailed(data) {
 
   const reference = getReference(data);
 
+  let payment = null;
+
   if (reference) {
-    await SubscriptionPayment.findOneAndUpdate(
-      { reference },
+    payment = await SubscriptionPayment.findOneAndUpdate(
+      {
+        reference,
+      },
       {
         $set: {
           user: subscription.user,
           subscription: subscription._id,
-          amountKobo: Number(data?.amount || ARTISAN_PLAN.amountKobo),
-          requestedAmountKobo: Number(data?.amount || ARTISAN_PLAN.amountKobo),
+
+          amountKobo: ARTISAN_PLAN.amountKobo,
+
+          requestedAmountKobo: Number(
+            data?.requested_amount ?? data?.amount ?? ARTISAN_PLAN.amountKobo,
+          ),
+
           customerChargedKobo: Number(data?.amount || 0),
+
           currency: String(
             data?.currency || ARTISAN_PLAN.currency,
           ).toUpperCase(),
+
           status: "failed",
           provider: "paystack",
           paymentSource: "webhook",
+
           paystackInvoiceCode: getInvoiceCode(data),
           paystackSubscriptionCode: getSubscriptionCode(data),
+
           verifiedAt: failureDate,
           failureReason: subscription.paymentFailureReason,
         },
+
         $setOnInsert: {
           reference,
         },
@@ -545,9 +647,17 @@ async function handleInvoicePaymentFailed(data) {
     );
   }
 
+  await notifyPaymentFailed({
+    subscription,
+    payment,
+    reference,
+    reason: subscription.paymentFailureReason,
+  });
+
   return {
     handled: true,
     subscriptionId: subscription._id,
+    paymentId: payment?._id || null,
   };
 }
 
@@ -580,6 +690,10 @@ async function handleSubscriptionNotRenew(data) {
   subscription.nextPaymentAt = null;
 
   await subscription.save();
+
+  await notifyRenewalCancelled({
+    subscription,
+  });
 
   return {
     handled: true,
@@ -630,6 +744,16 @@ async function handleSubscriptionDisable(data) {
       : disabledAt;
 
   await subscription.save();
+
+  const accessStillValid =
+    subscription.currentPeriodEnd &&
+    new Date(subscription.currentPeriodEnd).getTime() > Date.now();
+
+  if (!accessStillValid) {
+    await notifySubscriptionExpired({
+      subscription,
+    });
+  }
 
   return {
     handled: true,

@@ -10,6 +10,10 @@ const {
   cancelAutomaticRenewal,
 } = require("../controllers/subscriptionController");
 
+const {
+  runSubscriptionMaintenance,
+} = require("../controllers/subscriptionMaintenanceController");
+
 const { protect, artisanOnly } = require("../middleware/authMiddleware");
 
 /*
@@ -29,5 +33,7 @@ router.get(
 );
 
 router.patch("/cancel-renewal", protect, cancelAutomaticRenewal);
+
+router.post("/maintenance/run", runSubscriptionMaintenance);
 
 module.exports = router;

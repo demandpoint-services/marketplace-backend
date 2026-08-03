@@ -57,13 +57,32 @@ const notificationSchema = new mongoose.Schema(
 
     resourceType: {
       type: String,
-      enum: ["booking", "message", "payment", "review", "user", "system", null],
+      enum: [
+        "booking",
+        "message",
+        "payment",
+        "subscription",
+        "review",
+        "user",
+        "system",
+        null,
+      ],
       default: null,
     },
 
     resourceId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
+    },
+
+    /*
+     * Prevents duplicate notifications when Paystack retries
+     * the same webhook event or callback verification runs twice.
+     */
+    dedupeKey: {
+      type: String,
+      default: null,
+      trim: true,
     },
 
     metadata: {
@@ -98,5 +117,24 @@ notificationSchema.index({
   category: 1,
   createdAt: -1,
 });
+
+/*
+ * The partial index allows ordinary notifications to have a null
+ * dedupeKey while enforcing uniqueness where one is provided.
+ */
+notificationSchema.index(
+  {
+    recipient: 1,
+    dedupeKey: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      dedupeKey: {
+        $type: "string",
+      },
+    },
+  },
+);
 
 module.exports = mongoose.model("Notification", notificationSchema);
