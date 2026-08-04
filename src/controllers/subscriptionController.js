@@ -415,21 +415,38 @@ exports.verifySubscriptionPayment = async (req, res) => {
 
     const currentPeriodEnd = addOneCalendarMonth(paidAt);
 
-    const previousLastPaymentAt = subscription.lastPaymentAt
-      ? new Date(subscription.lastPaymentAt)
-      : null;
+    /*
+     * Check for a different successful payment before updating this one.
+     * This distinguishes first activation from a genuine renewal.
+     */
+    const previousSuccessfulPayment = await SubscriptionPayment.findOne({
+      subscription: subscription._id,
+      status: "success",
+      reference: {
+        $ne: reference,
+      },
+    }).select("_id");
 
     subscription.status = "active";
     subscription.providerStatus = "active";
+
     subscription.currentPeriodStart = paidAt;
     subscription.currentPeriodEnd = currentPeriodEnd;
+
     subscription.amountKobo = ARTISAN_PLAN.amountKobo;
     subscription.currency = ARTISAN_PLAN.currency;
+
     subscription.paystackPlanCode = process.env.PAYSTACK_PLAN_CODE;
+
     subscription.lastPaymentAt = paidAt;
     subscription.nextPaymentAt = currentPeriodEnd;
+
+    subscription.lastPaymentFailureAt = null;
+    subscription.paymentFailureReason = null;
+
     subscription.autoRenew = true;
     subscription.cancelledAt = null;
+    subscription.webhookUpdatedAt = new Date();
 
     if (transaction.customer?.customer_code) {
       subscription.paystackCustomerCode = transaction.customer.customer_code;
@@ -453,18 +470,25 @@ exports.verifySubscriptionPayment = async (req, res) => {
 
     payment.status = "success";
     payment.paymentSource = "callback";
+
     payment.channel = transaction.channel || null;
     payment.gatewayResponse = transaction.gateway_response || null;
+
     payment.customerChargedKobo = Number(
       transaction.amount || payment.amountKobo,
     );
+
     payment.requestedAmountKobo = Number(
       transaction.requested_amount ?? payment.amountKobo,
     );
+
     payment.feesKobo = Number(transaction.fees || 0);
+
     payment.paystackTransactionId = transaction.id || null;
+
     payment.paystackSubscriptionCode =
       transaction.subscription?.subscription_code || null;
+
     payment.paidAt = paidAt;
     payment.verifiedAt = new Date();
     payment.failureReason = null;
@@ -474,7 +498,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
     await notifyPaymentSuccess({
       subscription,
       payment,
-      isRenewal: Boolean(previousLastPaymentAt),
+      isRenewal: Boolean(previousSuccessfulPayment),
     });
 
     return res.status(200).json({

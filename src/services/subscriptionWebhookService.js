@@ -317,7 +317,6 @@ async function handleChargeSuccess(data) {
    * Capture the previous payment before updating the subscription.
    * If a previous successful payment exists, this payment is a renewal.
    */
-  const isRenewal = Boolean(previousSuccessfulPayment);
 
   const amount = Number(
     data?.requested_amount ??
@@ -410,6 +409,8 @@ async function handleChargeSuccess(data) {
     data,
     paymentSource: "webhook",
   });
+
+  const isRenewal = Boolean(previousSuccessfulPayment);
 
   await notifyPaymentSuccess({
     subscription,
