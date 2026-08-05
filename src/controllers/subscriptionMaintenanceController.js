@@ -1,6 +1,6 @@
 const {
-  processSubscriptionMaintenance,
-} = require("../services/subscriptionMaintenanceService");
+  runMaintenanceSafely,
+} = require("../services/subscriptionMaintenanceScheduler");
 
 exports.runSubscriptionMaintenance = async (req, res) => {
   try {
@@ -16,7 +16,7 @@ exports.runSubscriptionMaintenance = async (req, res) => {
       });
     }
 
-    const result = await processSubscriptionMaintenance();
+    const result = await runMaintenanceSafely("manual-endpoint");
 
     return res.status(200).json({
       success: true,

@@ -29,6 +29,7 @@ const preferenceMap = Object.freeze({
   [NOTIFICATION_TYPES.SUBSCRIPTION_TRIAL_EXPIRED]: "trialReminders",
   [NOTIFICATION_TYPES.SUBSCRIPTION_ACTIVATED]: "subscriptionUpdates",
   [NOTIFICATION_TYPES.SUBSCRIPTION_RENEWED]: "subscriptionUpdates",
+  [NOTIFICATION_TYPES.SUBSCRIPTION_RENEWAL_REMINDER]: "renewalReminders",
   [NOTIFICATION_TYPES.SUBSCRIPTION_RENEWAL_CANCELLED]: "subscriptionUpdates",
   [NOTIFICATION_TYPES.SUBSCRIPTION_EXPIRED]: "subscriptionUpdates",
 
@@ -56,7 +57,7 @@ async function getOrCreatePreferences(userId) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       upsert: true,
       setDefaultsOnInsert: true,
     },
@@ -164,7 +165,7 @@ async function createNotification({
       $setOnInsert: notificationData,
     },
     {
-      new: true,
+      returnDocument: "after",
       upsert: true,
       setDefaultsOnInsert: true,
       runValidators: true,

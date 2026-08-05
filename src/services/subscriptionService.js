@@ -7,6 +7,10 @@ const {
   serializeSubscription,
 } = require("../utils/subscriptionStatus");
 
+const {
+  notifyTrialStarted,
+} = require("./subscriptionCommunicationService");
+
 const ARTISAN_PLAN = SUBSCRIPTION_PLANS.ARTISAN_MONTHLY;
 
 function getTrialEndDate(startDate = new Date()) {
@@ -48,6 +52,10 @@ async function getOrCreateArtisanSubscription(userId) {
        * recurring Paystack subscription.
        */
       autoRenew: false,
+    });
+
+    await notifyTrialStarted({ subscription }).catch((error) => {
+      console.error("Trial start communication error:", error);
     });
 
     return subscription;

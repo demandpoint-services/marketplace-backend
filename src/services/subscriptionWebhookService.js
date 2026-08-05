@@ -283,7 +283,7 @@ async function upsertSuccessfulPayment({
     },
     {
       upsert: true,
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     },
   );
@@ -640,7 +640,7 @@ async function handleInvoicePaymentFailed(data) {
       },
       {
         upsert: true,
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     );

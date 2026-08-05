@@ -2,6 +2,9 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const connectDB = require("./src/config/db");
+const {
+  startSubscriptionMaintenanceScheduler,
+} = require("./src/services/subscriptionMaintenanceScheduler");
 
 const authRoutes = require("./src/routes/authRoutes");
 const artisanRoutes = require("./src/routes/artisanRoutes");
@@ -26,8 +29,7 @@ const allowedOrigins = [
   "https://www.demandpoint.app",
 ];
 
-// Connect to MongoDB
-connectDB();
+// MongoDB is connected during server bootstrap below.
 
 app.set("trust proxy", 1);
 
@@ -64,4 +66,17 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+async function startServer() {
+  await connectDB();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    startSubscriptionMaintenanceScheduler();
+  });
+}
+
+startServer().catch((error) => {
+  console.error("Server startup failed:", error);
+  process.exit(1);
+});
