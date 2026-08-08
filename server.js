@@ -10,6 +10,7 @@ const authRoutes = require("./src/routes/authRoutes");
 const artisanRoutes = require("./src/routes/artisanRoutes");
 const bookingRoutes = require("./src/routes/bookingRoutes");
 const portfolioRoutes = require("./src/routes/portfolioRoutes");
+const messageRoutes = require("./src/routes/messageRoutes");
 
 // MARKETPLACE ROUTES
 const productRoutes = require("./src/routes/productRoutes");
@@ -53,6 +54,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/artisans", artisanRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/messages", messageRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);

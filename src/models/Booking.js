@@ -41,6 +41,11 @@ const bookingSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    conversation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Conversation",
+      default: null,
+    },
     service: {
       type: String,
       trim: true,
