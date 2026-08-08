@@ -111,6 +111,16 @@ const bookingSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    review: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Review",
+      default: null,
+    },
+
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
     cancelledAt: {
       type: Date,
       default: null,
