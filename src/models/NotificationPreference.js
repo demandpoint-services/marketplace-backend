@@ -25,6 +25,16 @@ const notificationPreferenceSchema = new mongoose.Schema(
       default: true,
     },
 
+    bookingStarted: {
+      type: Boolean,
+      default: true,
+    },
+
+    bookingCompletionRequested: {
+      type: Boolean,
+      default: true,
+    },
+
     bookingCancelled: {
       type: Boolean,
       default: true,

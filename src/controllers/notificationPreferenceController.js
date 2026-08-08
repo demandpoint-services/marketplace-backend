@@ -5,6 +5,8 @@ const editableFields = [
   "bookingCreated",
   "bookingAccepted",
   "bookingDeclined",
+  "bookingStarted",
+  "bookingCompletionRequested",
   "bookingCancelled",
   "bookingCompleted",
   "bookingReminder",

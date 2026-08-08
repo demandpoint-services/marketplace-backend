@@ -14,6 +14,9 @@ const preferenceMap = Object.freeze({
   [NOTIFICATION_TYPES.BOOKING_CREATED]: "bookingCreated",
   [NOTIFICATION_TYPES.BOOKING_ACCEPTED]: "bookingAccepted",
   [NOTIFICATION_TYPES.BOOKING_DECLINED]: "bookingDeclined",
+  [NOTIFICATION_TYPES.BOOKING_STARTED]: "bookingStarted",
+  [NOTIFICATION_TYPES.BOOKING_COMPLETION_REQUESTED]:
+    "bookingCompletionRequested",
   [NOTIFICATION_TYPES.BOOKING_CANCELLED]: "bookingCancelled",
   [NOTIFICATION_TYPES.BOOKING_COMPLETED]: "bookingCompleted",
   [NOTIFICATION_TYPES.BOOKING_REMINDER]: "bookingReminder",
