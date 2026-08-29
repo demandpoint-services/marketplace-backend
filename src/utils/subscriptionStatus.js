@@ -94,6 +94,11 @@ function getSubscriptionAccess(subscription) {
     canCreatePortfolio: hasAccess,
     canUpdatePortfolio: hasAccess,
     canDeletePortfolio: hasAccess,
+    canBecomeVendor: hasAccess,
+    canSellProducts: hasAccess,
+    canCreateProducts: hasAccess,
+    canUpdateProducts: hasAccess,
+    canReceiveNewOrders: hasAccess,
 
     profileVisibility: hasAccess ? "visible" : "hidden",
 

@@ -21,6 +21,9 @@ const userRoutes = require("./src/routes/userRoutes");
 
 const notificationRoutes = require("./src/routes/notificationRoutes");
 const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
+const vendorRoutes = require("./src/routes/vendorRoutes");
+const shippingRoutes = require("./src/routes/shippingRoutes");
+const paymentRoutes = require("./src/routes/paymentRoutes");
 
 const app = express();
 
@@ -54,12 +57,15 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/artisans", artisanRoutes);
+app.use("/api/vendors", vendorRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
+app.use("/api/shipping", shippingRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);

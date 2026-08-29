@@ -36,9 +36,4 @@ const artisanOnly = (req, res, next) => {
   return res.status(403).json({ message: "Artisan access only" });
 };
 
-const vendorOnly = (req, res, next) => {
-  if (req.user?.role === "vendor") return next();
-  return res.status(403).json({ message: "Vendor access only" });
-};
-
-module.exports = { protect, artisanOnly, vendorOnly };
+module.exports = { protect, artisanOnly };

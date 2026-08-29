@@ -45,29 +45,47 @@ async function initializeTransaction({
   planCode,
   callbackUrl,
   metadata,
+  channels,
 }) {
+  const payload = {
+    email,
+    amount: String(amountKobo),
+    currency: "NGN",
+    reference,
+    callback_url: callbackUrl,
+    metadata,
+  };
+
+  /*
+   * Subscription checkout supplies a Paystack plan.
+   * Marketplace orders do not.
+   */
+  if (planCode) {
+    payload.plan = planCode;
+  }
+
+  /*
+   * Subscription checkout currently requires card because we need
+   * a reusable authorization for recurring billing.
+   *
+   * Marketplace checkout can use the payment channels enabled on
+   * the Paystack account unless explicitly restricted.
+   */
+  if (Array.isArray(channels) && channels.length > 0) {
+    payload.channels = channels;
+  } else if (planCode) {
+    payload.channels = ["card"];
+  }
+
   const response = await fetch(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
     method: "POST",
+
     headers: {
       Authorization: `Bearer ${getSecretKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      email,
-      amount: String(amountKobo),
-      currency: "NGN",
-      reference,
-      plan: planCode,
-      callback_url: callbackUrl,
 
-      /*
-       * Card payments supply the reusable authorization needed
-       * for subsequent recurring subscription charges.
-       */
-      channels: ["card"],
-
-      metadata,
-    }),
+    body: JSON.stringify(payload),
   });
 
   return parsePaystackResponse(response);
