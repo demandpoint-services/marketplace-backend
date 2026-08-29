@@ -347,12 +347,11 @@ exports.verifyOrderPayment = async (req, res) => {
 
     if (
       !Number.isInteger(paidAmountKobo) ||
-      paidAmountKobo !== expectedAmountKobo
+      paidAmountKobo < expectedAmountKobo
     ) {
       order.paymentStatus = "failed";
 
-      order.paymentFailureReason =
-        "The amount paid does not match the order total.";
+      order.paymentFailureReason = `Payment amount is insufficient. Expected at least ${expectedAmountKobo} kobo, received ${paidAmountKobo} kobo.`;
 
       order.paymentVerifiedAt = new Date();
 
