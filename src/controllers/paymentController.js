@@ -192,6 +192,11 @@ exports.initializeOrderPayment = async (req, res) => {
     order.paymentReference = returnedReference;
     order.authorizationUrl = authorizationUrl;
     order.accessCode = accessCode || "";
+    /*
+     * Snapshot the exact amount that was sent to Paystack.
+     * Verification must compare against this amount.
+     */
+    order.paymentAmountKobo = amountKobo;
 
     await order.save();
 
@@ -317,7 +322,9 @@ exports.verifyOrderPayment = async (req, res) => {
       );
     }
 
-    const expectedAmountKobo = Number(order.totalKobo);
+    const expectedAmountKobo = Number(
+      order.paymentAmountKobo || order.totalKobo,
+    );
 
     const paidAmountKobo = Number(transaction.amount);
 
@@ -325,6 +332,19 @@ exports.verifyOrderPayment = async (req, res) => {
      * Never fulfil an order if the customer paid a different
      * amount from the server-calculated order total.
      */
+
+    console.log("PAYMENT AMOUNT VERIFICATION", {
+      reference,
+      orderId: order._id.toString(),
+      subtotalKobo: order.subtotalKobo,
+      deliveryFeeKobo: order.deliveryFeeKobo,
+      totalKobo: order.totalKobo,
+      expectedAmountKobo,
+      paidAmountKobo,
+      paystackAmount: transaction.amount,
+      currency: transaction.currency,
+    });
+
     if (
       !Number.isInteger(paidAmountKobo) ||
       paidAmountKobo !== expectedAmountKobo
