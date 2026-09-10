@@ -1,9 +1,6 @@
 const express = require("express");
 
-const {
-  initializeOrderPayment,
-  verifyOrderPayment,
-} = require("../controllers/paymentController");
+const { initializeOrderPayment, verifyOrderPayment } = require("../controllers/paymentController");
 
 const { protect } = require("../middleware/authMiddleware");
 

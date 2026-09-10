@@ -54,7 +54,7 @@ const orderItemSchema = new mongoose.Schema(
   },
   {
     _id: true,
-  },
+  }
 );
 
 const vendorOrderSchema = new mongoose.Schema(
@@ -113,7 +113,7 @@ const vendorOrderSchema = new mongoose.Schema(
   },
   {
     _id: true,
-  },
+  }
 );
 
 const orderSchema = new mongoose.Schema(
@@ -194,14 +194,7 @@ const orderSchema = new mongoose.Schema(
 
     paymentStatus: {
       type: String,
-      enum: [
-        "pending",
-        "paid",
-        "failed",
-        "abandoned",
-        "refunded",
-        "partially_refunded",
-      ],
+      enum: ["pending", "paid", "failed", "abandoned", "refunded", "partially_refunded"],
       default: "pending",
       index: true,
     },
@@ -241,7 +234,18 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Exact amount DemandPoint asked Paystack to charge.
+    // Keep this immutable after initialization so verification always
+    // has the original server-calculated payment snapshot.
     paymentAmountKobo: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
+    // Actual amount Paystack reports as paid. This can be greater than
+    // paymentAmountKobo when transaction fees are passed to the customer.
+    amountPaidKobo: {
       type: Number,
       default: null,
       min: 0,
@@ -261,6 +265,39 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
       trim: true,
+    },
+
+    // ----------------------------------------------------------
+    // FULFILMENT
+    // ----------------------------------------------------------
+
+    fulfillmentStatus: {
+      type: String,
+      enum: ["pending", "processing", "fulfilled", "failed"],
+      default: "pending",
+      index: true,
+    },
+
+    fulfilledAt: {
+      type: Date,
+      default: null,
+    },
+
+    fulfillmentStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    fulfillmentFailedAt: {
+      type: Date,
+      default: null,
+    },
+
+    fulfillmentError: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
     },
 
     // ----------------------------------------------------------
@@ -344,13 +381,7 @@ const orderSchema = new mongoose.Schema(
 
     settlementStatus: {
       type: String,
-      enum: [
-        "not_ready",
-        "pending",
-        "partially_settled",
-        "settled",
-        "reversed",
-      ],
+      enum: ["not_ready", "pending", "partially_settled", "settled", "reversed"],
       default: "not_ready",
       index: true,
     },
@@ -396,7 +427,7 @@ const orderSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  },
+  }
 );
 
 // ------------------------------------------------------------
@@ -420,6 +451,11 @@ orderSchema.index({
 
 orderSchema.index({
   status: 1,
+  createdAt: -1,
+});
+
+orderSchema.index({
+  fulfillmentStatus: 1,
   createdAt: -1,
 });
 

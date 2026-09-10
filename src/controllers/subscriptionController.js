@@ -19,8 +19,11 @@ const {
 } = require("../services/subscriptionWebhookService");
 
 const {
-  getOrCreateArtisanSubscription,
-} = require("../services/subscriptionService");
+  isMarketplaceOrderEvent,
+  processMarketplaceOrderEvent,
+} = require("../services/marketplaceWebhookService");
+
+const { getOrCreateArtisanSubscription } = require("../services/subscriptionService");
 
 const {
   initializeTransaction,
@@ -54,11 +57,7 @@ function addOneCalendarMonth(date) {
   result.setDate(1);
   result.setMonth(result.getMonth() + 1);
 
-  const lastDayOfTargetMonth = new Date(
-    result.getFullYear(),
-    result.getMonth() + 1,
-    0,
-  ).getDate();
+  const lastDayOfTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
 
   result.setDate(Math.min(originalDay, lastDayOfTargetMonth));
 
@@ -128,9 +127,7 @@ exports.initializeSubscriptionPayment = async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id).select(
-      "name email role isSuspended",
-    );
+    const user = await User.findById(req.user._id).select("name email role isSuspended");
 
     if (!user) {
       return res.status(404).json({
@@ -162,15 +159,12 @@ exports.initializeSubscriptionPayment = async (req, res) => {
     const paystackPlan = paystackPlanResponse.data;
 
     const paystackPlanAmount = Number(paystackPlan?.amount);
-    const paystackPlanCurrency = String(
-      paystackPlan?.currency || "",
-    ).toUpperCase();
+    const paystackPlanCurrency = String(paystackPlan?.currency || "").toUpperCase();
 
     if (!Number.isFinite(paystackPlanAmount)) {
       return res.status(503).json({
         success: false,
-        message:
-          "The configured Paystack subscription plan has an invalid amount.",
+        message: "The configured Paystack subscription plan has an invalid amount.",
       });
     }
 
@@ -184,8 +178,7 @@ exports.initializeSubscriptionPayment = async (req, res) => {
       return res.status(503).json({
         success: false,
         code: "PAYSTACK_PLAN_AMOUNT_MISMATCH",
-        message:
-          "The Paystack plan amount does not match the DemandPoint subscription price.",
+        message: "The Paystack plan amount does not match the DemandPoint subscription price.",
       });
     }
 
@@ -193,8 +186,7 @@ exports.initializeSubscriptionPayment = async (req, res) => {
       return res.status(503).json({
         success: false,
         code: "PAYSTACK_PLAN_CURRENCY_MISMATCH",
-        message:
-          "The Paystack plan currency does not match the DemandPoint subscription currency.",
+        message: "The Paystack plan currency does not match the DemandPoint subscription currency.",
       });
     }
 
@@ -210,8 +202,7 @@ exports.initializeSubscriptionPayment = async (req, res) => {
       return res.status(409).json({
         success: false,
         code: "SUBSCRIPTION_ALREADY_ACTIVE",
-        message:
-          "Your DemandPoint Professional subscription is already active.",
+        message: "Your DemandPoint Professional subscription is already active.",
         subscription: subscriptionData,
       });
     }
@@ -272,12 +263,10 @@ exports.initializeSubscriptionPayment = async (req, res) => {
       });
     }
 
-    return res
-      .status(error?.status >= 400 && error?.status < 500 ? error.status : 500)
-      .json({
-        success: false,
-        message: error?.message || "Unable to initialize subscription payment.",
-      });
+    return res.status(error?.status >= 400 && error?.status < 500 ? error.status : 500).json({
+      success: false,
+      message: error?.message || "Unable to initialize subscription payment.",
+    });
   }
 };
 
@@ -340,8 +329,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
     }
 
     if (transaction.status !== "success") {
-      payment.status =
-        transaction.status === "abandoned" ? "abandoned" : "failed";
+      payment.status = transaction.status === "abandoned" ? "abandoned" : "failed";
 
       payment.gatewayResponse = transaction.gateway_response || null;
 
@@ -361,9 +349,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
 
     const transactionAmount = Number(transaction.amount);
 
-    const requestedAmount = Number(
-      transaction.requested_amount ?? payment.amountKobo,
-    );
+    const requestedAmount = Number(transaction.requested_amount ?? payment.amountKobo);
 
     const expectedSubscriptionAmount = Number(payment.amountKobo);
 
@@ -383,8 +369,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
       return res.status(400).json({
         success: false,
         code: "PAYMENT_AMOUNT_MISMATCH",
-        message:
-          "The payment amount does not match the initialized subscription payment.",
+        message: "The payment amount does not match the initialized subscription payment.",
       });
     }
 
@@ -409,9 +394,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
       });
     }
 
-    const paidAt = transaction.paid_at
-      ? new Date(transaction.paid_at)
-      : new Date();
+    const paidAt = transaction.paid_at ? new Date(transaction.paid_at) : new Date();
 
     const currentPeriodEnd = addOneCalendarMonth(paidAt);
 
@@ -453,8 +436,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
     }
 
     if (transaction.subscription?.subscription_code) {
-      subscription.paystackSubscriptionCode =
-        transaction.subscription.subscription_code;
+      subscription.paystackSubscriptionCode = transaction.subscription.subscription_code;
     }
 
     if (transaction.subscription?.email_token) {
@@ -462,8 +444,7 @@ exports.verifySubscriptionPayment = async (req, res) => {
     }
 
     if (transaction.authorization?.authorization_code) {
-      subscription.paystackAuthorizationCode =
-        transaction.authorization.authorization_code;
+      subscription.paystackAuthorizationCode = transaction.authorization.authorization_code;
     }
 
     await subscription.save();
@@ -474,20 +455,15 @@ exports.verifySubscriptionPayment = async (req, res) => {
     payment.channel = transaction.channel || null;
     payment.gatewayResponse = transaction.gateway_response || null;
 
-    payment.customerChargedKobo = Number(
-      transaction.amount || payment.amountKobo,
-    );
+    payment.customerChargedKobo = Number(transaction.amount || payment.amountKobo);
 
-    payment.requestedAmountKobo = Number(
-      transaction.requested_amount ?? payment.amountKobo,
-    );
+    payment.requestedAmountKobo = Number(transaction.requested_amount ?? payment.amountKobo);
 
     payment.feesKobo = Number(transaction.fees || 0);
 
     payment.paystackTransactionId = transaction.id || null;
 
-    payment.paystackSubscriptionCode =
-      transaction.subscription?.subscription_code || null;
+    payment.paystackSubscriptionCode = transaction.subscription?.subscription_code || null;
 
     payment.paidAt = paidAt;
     payment.verifiedAt = new Date();
@@ -515,20 +491,30 @@ exports.verifySubscriptionPayment = async (req, res) => {
   } catch (error) {
     console.error("Verify subscription payment error:", error);
 
-    return res
-      .status(error?.status >= 400 && error?.status < 500 ? error.status : 500)
-      .json({
-        success: false,
-        message: error?.message || "Unable to verify subscription payment.",
-      });
+    return res.status(error?.status >= 400 && error?.status < 500 ? error.status : 500).json({
+      success: false,
+      message: error?.message || "Unable to verify subscription payment.",
+    });
   }
 };
 
 // POST /api/subscriptions/webhook/paystack
+//
+// This is DemandPoint's CENTRAL Paystack webhook.
+//
+// It handles:
+// - marketplace payments
+// - subscription payments
+// - subscription lifecycle events
 exports.handlePaystackWebhook = async (req, res) => {
   const signature = req.headers["x-paystack-signature"];
 
   try {
+    /*
+     * ------------------------------------------------------
+     * VERIFY PAYSTACK
+     * ------------------------------------------------------
+     */
     const isValidSignature = verifyPaystackSignature(req.body, signature);
 
     if (!isValidSignature) {
@@ -549,8 +535,16 @@ exports.handlePaystackWebhook = async (req, res) => {
       });
     }
 
+    /*
+     * ------------------------------------------------------
+     * IDENTIFY EVENT
+     * ------------------------------------------------------
+     */
+
     const reference = getReference(event.data);
+
     const subscriptionCode = getSubscriptionCode(event.data);
+
     const customerCode = getCustomerCode(event.data);
 
     const uniqueSource =
@@ -559,49 +553,143 @@ exports.handlePaystackWebhook = async (req, res) => {
       event.data?.invoice_code ||
       event.data?.id ||
       customerCode ||
-      crypto
-        .createHash("sha256")
-        .update(JSON.stringify(event.data))
-        .digest("hex");
+      crypto.createHash("sha256").update(JSON.stringify(event.data)).digest("hex");
 
     const eventKey = `${event.event}:${uniqueSource}`;
 
     let webhookEvent;
 
+    /*
+     * ------------------------------------------------------
+     * IDEMPOTENT WEBHOOK EVENT RECORD
+     * ------------------------------------------------------
+     */
+
     try {
       webhookEvent = await PaystackWebhookEvent.create({
         eventKey,
+
         eventType: event.event,
+
         domain: event.data?.domain || null,
+
         reference,
+
         subscriptionCode,
+
         customerCode,
+
         status: "received",
+
         payload: event,
       });
     } catch (error) {
-      if (error?.code === 11000) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+
+      /*
+       * Event already exists.
+       *
+       * IMPORTANT:
+       * Do not automatically return 200 for every duplicate.
+       *
+       * A previous attempt may have FAILED, and Paystack may
+       * now be retrying it.
+       */
+      webhookEvent = await PaystackWebhookEvent.findOne({
+        eventKey,
+      });
+
+      if (!webhookEvent) {
+        throw error;
+      }
+
+      /*
+       * Successfully completed events are truly duplicates.
+       */
+      if (webhookEvent.status === "processed" || webhookEvent.status === "ignored") {
         return res.status(200).json({
           success: true,
           duplicate: true,
-          message: "Webhook event was already received.",
+
+          message: "Webhook event was already processed.",
         });
       }
 
-      throw error;
+      /*
+       * failed / received events may be retried.
+       *
+       * A processing event may also be a previous crashed
+       * request. We allow retrying it because downstream
+       * fulfilment/payment handlers are idempotent.
+       */
     }
 
     webhookEvent.status = "processing";
-    webhookEvent.attempts += 1;
+
+    webhookEvent.attempts = Number(webhookEvent.attempts || 0) + 1;
+
     webhookEvent.lastAttemptAt = new Date();
+
+    webhookEvent.failureReason = null;
 
     await webhookEvent.save();
 
     try {
-      const result = await processPaystackSubscriptionEvent(event);
+      let result;
+
+      /*
+       * ----------------------------------------------------
+       * ROUTE PAYMENT DOMAIN
+       * ----------------------------------------------------
+       *
+       * Marketplace events MUST be intercepted before
+       * reaching the subscription processor.
+       *
+       * This protects against a marketplace customer who is
+       * also an artisan accidentally matching a subscription
+       * through email/customer information.
+       */
+
+      if (isMarketplaceOrderEvent(event)) {
+        result = await processMarketplaceOrderEvent(event);
+
+        console.log("Paystack marketplace webhook result:", {
+          event: event.event,
+
+          reference,
+
+          handled: result.handled,
+
+          orderId: result.orderId ? String(result.orderId) : null,
+
+          alreadyFulfilled: Boolean(result.alreadyFulfilled),
+        });
+      } else {
+        result = await processPaystackSubscriptionEvent(event);
+
+        console.log("Paystack subscription webhook result:", {
+          event: event.event,
+
+          reference,
+
+          handled: result.handled,
+
+          subscriptionId: result.subscriptionId ? String(result.subscriptionId) : null,
+        });
+      }
+
+      /*
+       * ----------------------------------------------------
+       * EVENT COMPLETED
+       * ----------------------------------------------------
+       */
 
       webhookEvent.status = result.handled ? "processed" : "ignored";
+
       webhookEvent.processedAt = new Date();
+
       webhookEvent.failureReason = result.handled
         ? null
         : result.reason || "Event was not handled.";
@@ -610,25 +698,43 @@ exports.handlePaystackWebhook = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        processed: result.handled,
+
+        processed: Boolean(result.handled),
+
+        type: isMarketplaceOrderEvent(event) ? "marketplace" : "subscription",
       });
     } catch (processingError) {
+      /*
+       * ----------------------------------------------------
+       * PROCESSING FAILED
+       * ----------------------------------------------------
+       */
+
       webhookEvent.status = "failed";
-      webhookEvent.failureReason =
-        processingError?.message || "Webhook processing failed.";
+
+      webhookEvent.failureReason = processingError?.message || "Webhook processing failed.";
 
       await webhookEvent.save().catch((saveError) => {
         console.error("Save failed webhook event error:", saveError);
       });
 
-      console.error("Paystack webhook processing error:", processingError);
+      console.error("Paystack webhook processing error:", {
+        event: event.event,
+
+        reference,
+
+        code: processingError?.code || null,
+
+        message: processingError?.message,
+      });
 
       /*
-       * Return a non-200 response so Paystack retries events that failed
-       * because of temporary database or application errors.
+       * Non-2xx response tells Paystack to retry temporary
+       * failures.
        */
       return res.status(500).json({
         success: false,
+
         message: "Webhook processing failed.",
       });
     }
@@ -637,6 +743,7 @@ exports.handlePaystackWebhook = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message: "Unable to process Paystack webhook.",
     });
   }
@@ -665,10 +772,7 @@ exports.cancelAutomaticRenewal = async (req, res) => {
      * Trial users have not yet created a paid recurring subscription
      * with Paystack, so there is nothing to cancel.
      */
-    if (
-      subscription.status === "trialing" &&
-      !subscription.paystackSubscriptionCode
-    ) {
+    if (subscription.status === "trialing" && !subscription.paystackSubscriptionCode) {
       subscription.autoRenew = false;
 
       await subscription.save();
@@ -689,10 +793,7 @@ exports.cancelAutomaticRenewal = async (req, res) => {
       });
     }
 
-    if (
-      !subscription.paystackSubscriptionCode ||
-      !subscription.paystackEmailToken
-    ) {
+    if (!subscription.paystackSubscriptionCode || !subscription.paystackEmailToken) {
       return res.status(409).json({
         success: false,
         code: "PAYSTACK_SUBSCRIPTION_DETAILS_MISSING",
@@ -731,17 +832,12 @@ exports.cancelAutomaticRenewal = async (req, res) => {
   } catch (error) {
     console.error("Cancel subscription renewal error:", error);
 
-    const status =
-      Number.isInteger(error?.status) && error.status >= 400
-        ? error.status
-        : 500;
+    const status = Number.isInteger(error?.status) && error.status >= 400 ? error.status : 500;
 
     return res.status(status).json({
       success: false,
       message:
-        status === 500
-          ? "Unable to cancel automatic renewal. Please try again."
-          : error.message,
+        status === 500 ? "Unable to cancel automatic renewal. Please try again." : error.message,
     });
   }
 };
