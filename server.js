@@ -14,6 +14,7 @@ const messageRoutes = require("./src/routes/messageRoutes");
 const reviewRoutes = require("./src/routes/reviewRoutes");
 
 // MARKETPLACE ROUTES
+const spaceRoutes = require("./src/routes/spaceRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const cartRoutes = require("./src/routes/cartRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
@@ -24,6 +25,8 @@ const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
 const vendorRoutes = require("./src/routes/vendorRoutes");
 const shippingRoutes = require("./src/routes/shippingRoutes");
 const paymentRoutes = require("./src/routes/paymentRoutes");
+const platformRoutes = require("./src/routes/platformRoutes");
+const spaceBookingRoutes = require("./src/routes/spaceBookingRoutes");
 
 const app = express();
 
@@ -49,9 +52,18 @@ app.use(
       }
     },
     credentials: true,
-  }),
+  })
 );
-app.use(express.json());
+
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      if (req.originalUrl === "/api/space-bookings/payment/webhook") {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 
 // Core API Routes
 app.use("/api/auth", authRoutes);
@@ -61,6 +73,7 @@ app.use("/api/vendors", vendorRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/spaces", spaceRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/shipping", shippingRoutes);
@@ -69,6 +82,10 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/api/space-bookings", spaceBookingRoutes);
+
+// Public platform information
+app.use("/api/platform", platformRoutes);
 
 // Test route
 app.get("/", (req, res) => {

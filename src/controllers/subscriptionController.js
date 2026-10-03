@@ -2,8 +2,12 @@ const crypto = require("crypto");
 
 const User = require("../models/User");
 const SubscriptionPayment = require("../models/SubscriptionPayment");
-
 const PaystackWebhookEvent = require("../models/PaystackWebhookEvent");
+
+const {
+  isSpaceBookingEvent,
+  processSpaceBookingEvent,
+} = require("../services/spaceBookingWebhookService");
 
 const {
   notifyPaymentSuccess,
@@ -652,28 +656,46 @@ exports.handlePaystackWebhook = async (req, res) => {
        * through email/customer information.
        */
 
+      let paymentType;
+
       if (isMarketplaceOrderEvent(event)) {
+        paymentType = "marketplace";
+
         result = await processMarketplaceOrderEvent(event);
 
         console.log("Paystack marketplace webhook result:", {
           event: event.event,
-
           reference,
-
           handled: result.handled,
 
           orderId: result.orderId ? String(result.orderId) : null,
 
           alreadyFulfilled: Boolean(result.alreadyFulfilled),
         });
+      } else if (isSpaceBookingEvent(event)) {
+        paymentType = "space_booking";
+
+        result = await processSpaceBookingEvent(event);
+
+        console.log("Paystack space booking webhook result:", {
+          event: event.event,
+          reference,
+          handled: result.handled,
+
+          bookingId: result.bookingId ? String(result.bookingId) : null,
+
+          alreadyConfirmed: Boolean(result.alreadyConfirmed),
+
+          needsResolution: Boolean(result.needsResolution),
+        });
       } else {
+        paymentType = "subscription";
+
         result = await processPaystackSubscriptionEvent(event);
 
         console.log("Paystack subscription webhook result:", {
           event: event.event,
-
           reference,
-
           handled: result.handled,
 
           subscriptionId: result.subscriptionId ? String(result.subscriptionId) : null,
@@ -701,7 +723,7 @@ exports.handlePaystackWebhook = async (req, res) => {
 
         processed: Boolean(result.handled),
 
-        type: isMarketplaceOrderEvent(event) ? "marketplace" : "subscription",
+        type: paymentType,
       });
     } catch (processingError) {
       /*
