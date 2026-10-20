@@ -2,6 +2,8 @@ const SpaceBooking = require("../models/SpaceBooking");
 
 const { checkBookingConflicts } = require("./spaceAvailabilityService");
 
+const { notifySpaceBookingConfirmed } = require("./spaceBookingNotificationService");
+
 function createPaymentError(message, code, status = 409) {
   const error = new Error(message);
 
@@ -98,11 +100,12 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
   }
 
   /*
-   * Same rule as marketplace checkout:
+   * Paystack payment verification.
    *
-   * Paystack may report a higher amount when
-   * transaction fees are passed to the customer.
+   * The payment must cover at least the
+   * expected reservation amount.
    */
+
   if (!Number.isInteger(paidAmountKobo) || paidAmountKobo < expectedAmountKobo) {
     booking.payment.status = "failed";
 
@@ -144,35 +147,45 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
   }
 
   /*
-   * ========================================================
-   * FINANCIAL TRUTH
-   * ========================================================
-   *
-   * From here onward Paystack says real money was received.
-   * Record that before attempting reservation confirmation.
+   * ==========================================
+   * RECORD VERIFIED PAYMENT
+   * ==========================================
    */
 
   const paidAt = transaction?.paid_at ? new Date(transaction.paid_at) : new Date();
 
   booking.payment.reference = reference;
   booking.payment.status = "paid";
+
   booking.payment.requestedAmountKobo = expectedAmountKobo;
+
   booking.payment.amountPaidKobo = paidAmountKobo;
+
   booking.payment.currency = receivedCurrency;
+
   booking.payment.transactionId = transaction?.id != null ? String(transaction.id) : "";
+
   booking.payment.channel = transaction?.channel || "";
+
   booking.payment.paidAt = paidAt;
   booking.payment.verifiedAt = new Date();
   booking.payment.failureReason = "";
 
   /*
-   * Idempotency.
+   * ==========================================
+   * IDEMPOTENCY
+   * ==========================================
    *
-   * Browser callback may already have confirmed it
-   * before the webhook arrives, or vice versa.
+   * The browser callback and Paystack webhook
+   * may process the same successful payment.
+   *
+   * Do not confirm the same booking twice.
    */
+
   if (booking.status === "confirmed") {
     await booking.save();
+
+    await notifySpaceBookingConfirmed(booking);
 
     return {
       booking,
@@ -184,6 +197,8 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
   if (booking.status === "completed") {
     await booking.save();
 
+    await notifySpaceBookingConfirmed(booking);
+
     return {
       booking,
       alreadyConfirmed: true,
@@ -192,10 +207,14 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
   }
 
   /*
-   * If the booking was deliberately cancelled or
-   * declined before payment completed, money was still
-   * received but we must not resurrect the reservation.
+   * ==========================================
+   * CANCELLED OR DECLINED BOOKINGS
+   * ==========================================
+   *
+   * Never reactivate a cancelled or declined
+   * reservation simply because payment arrived.
    */
+
   if (["cancelled", "declined"].includes(booking.status)) {
     booking.payment.status = "needs_resolution";
 
@@ -212,13 +231,11 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
   }
 
   /*
-   * ========================================================
-   * RESERVATION SAFETY
-   * ========================================================
-   *
-   * Exclude this booking itself and see whether another
-   * active hold/confirmed reservation now occupies the slot.
+   * ==========================================
+   * RESERVATION CONFLICT CHECK
+   * ==========================================
    */
+
   const conflict = await checkBookingConflicts({
     spaceId: booking.space,
     startAt: booking.startAt,
@@ -238,19 +255,21 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
       booking,
       alreadyConfirmed: false,
       needsResolution: true,
+
       reason: "SPACE_SLOT_CONFLICT_AFTER_PAYMENT",
+
       conflictingBookingId: conflict._id,
     };
   }
 
   /*
-   * No competing reservation exists.
-   *
-   * This is safe even when the original 15-minute
-   * hold technically expired, provided nobody else
-   * claimed the slot.
+   * ==========================================
+   * CONFIRM RESERVATION
+   * ==========================================
    */
+
   booking.status = "confirmed";
+
   booking.confirmedAt = booking.confirmedAt || new Date();
 
   booking.holdExpiresAt = null;
@@ -263,12 +282,28 @@ async function confirmPaidSpaceBooking({ bookingId, transaction, expectedClientI
     booking.statusHistory.push({
       status: "confirmed",
       changedBy: null,
+
       note: "Payment verified successfully. Space booking confirmed.",
+
       createdAt: new Date(),
     });
   }
 
   await booking.save();
+
+  /*
+   * ==========================================
+   * NOTIFY CUSTOMER AND SPACE OWNER
+   * ==========================================
+   *
+   * Notifications are created only after
+   * the reservation is successfully confirmed.
+   *
+   * Duplicate notifications are prevented
+   * by their unique dedupe keys.
+   */
+
+  await notifySpaceBookingConfirmed(booking);
 
   return {
     booking,

@@ -340,6 +340,29 @@ exports.getMySpaceBookings = async (req, res) => {
 // CLIENT: INITIALIZE SPACE PAYMENT
 // POST /api/space-bookings/:id/payment/initialize
 // ============================================================
+function getSpacePaymentCallbackUrl() {
+  const frontendUrl = String(process.env.FRONTEND_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+
+  if (!frontendUrl) {
+    throw createHttpError("FRONTEND_URL is not configured.", 500, "FRONTEND_URL_MISSING");
+  }
+
+  const url = new URL(frontendUrl);
+
+  const isLocalhost = ["localhost", "127.0.0.1"].includes(url.hostname);
+
+  if (url.protocol !== "https:" && !(isLocalhost && url.protocol === "http:")) {
+    throw createHttpError(
+      "Invalid frontend callback URL configuration.",
+      500,
+      "INVALID_FRONTEND_URL"
+    );
+  }
+
+  return new URL("/spaces/payment/verify", `${url.origin}/`).toString();
+}
 
 exports.initializeSpaceBookingPayment = async (req, res) => {
   try {
@@ -444,7 +467,7 @@ exports.initializeSpaceBookingPayment = async (req, res) => {
      * We'll build this frontend page in the Spaces UI
      * phase. For now Paystack can still initialize it.
      */
-    const callbackUrl = `${getFrontendUrl()}` + `/spaces/payment/verify`;
+    const callbackUrl = getSpacePaymentCallbackUrl();
     console.log("SPACE PAYMENT CALLBACK URL:", callbackUrl);
     const paystackResponse = await initializeTransaction({
       email,
