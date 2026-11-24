@@ -21,6 +21,7 @@
   "scripts": {
     "start": "node server.js",
     "start:staging-auth": "node server.staging-auth.js",
+    "start:marketplace-staging": "node server.marketplace-staging.js",
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

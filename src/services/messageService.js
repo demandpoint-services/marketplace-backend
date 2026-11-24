@@ -13,9 +13,10 @@ const {
 } = require("../constants/notificationCategories");
 
 function idsMatch(first, second) {
-  if (!first || !second) return false;
-
-  return String(first) === String(second);
+  const firstId = first?._id ?? first;
+  const secondId = second?._id ?? second;
+  if (!mongoose.isObjectIdOrHexString(firstId) || !mongoose.isObjectIdOrHexString(secondId)) return false;
+  return String(firstId).toLowerCase() === String(secondId).toLowerCase();
 }
 
 function getConversationSide(conversation, userId) {
@@ -134,10 +135,10 @@ async function getOrCreateBookingConversation({ bookingId, requestingUserId }) {
     }
   }
 
-  if (
-    conversation &&
-    (!booking.conversation || !idsMatch(booking.conversation, conversation._id))
-  ) {
+  if (!conversation) throw new Error("Unable to retrieve the booking conversation.");
+  assertConversationParticipant(conversation, requestingUserId);
+
+  if (!idsMatch(booking.conversation, conversation._id)) {
     booking.conversation = conversation._id;
 
     await booking.save();
@@ -180,7 +181,7 @@ async function getConversationForUser({ conversationId, userId }) {
     throw error;
   }
 
-  const conversation = await populateConversation(conversationId);
+  const conversation = await Conversation.findById(conversationId);
 
   if (!conversation) {
     const error = new Error("Conversation not found.");
@@ -190,7 +191,7 @@ async function getConversationForUser({ conversationId, userId }) {
 
   assertConversationParticipant(conversation, userId);
 
-  return conversation;
+  return populateConversation(conversation._id);
 }
 
 async function listUserConversations(userId) {
