@@ -30,6 +30,7 @@ exports.openBookingConversation = async (req, res) => {
 
     return res.status(status).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: error?.message || "Unable to open this conversation.",
     });
   }
@@ -52,6 +53,7 @@ exports.getMyConversations = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: "Unable to retrieve your conversations.",
     });
   }
@@ -79,6 +81,7 @@ exports.getConversation = async (req, res) => {
 
     return res.status(status).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: error?.message || "Unable to retrieve this conversation.",
     });
   }
@@ -91,6 +94,7 @@ exports.getMessages = async (req, res) => {
       conversationId: req.params.conversationId,
       userId: req.user._id,
       page: req.query.page,
+      before: req.query.before,
       limit: req.query.limit,
     });
 
@@ -108,6 +112,7 @@ exports.getMessages = async (req, res) => {
 
     return res.status(status).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: error?.message || "Unable to retrieve messages.",
     });
   }
@@ -116,16 +121,18 @@ exports.getMessages = async (req, res) => {
 // POST /api/messages/conversations/:conversationId/messages
 exports.sendMessage = async (req, res) => {
   try {
-    const message = await sendConversationMessage({
+    const { message, replayed } = await sendConversationMessage({
       conversationId: req.params.conversationId,
       sender: req.user,
       text: req.body?.text,
       attachments: req.body?.attachments,
+      clientMutationId: req.body?.clientMutationId,
     });
 
-    return res.status(201).json({
+    return res.status(replayed ? 200 : 201).json({
       success: true,
       message,
+      ...(req.body?.clientMutationId !== undefined && { replayed }),
     });
   } catch (error) {
     console.error("Send conversation message error:", error);
@@ -137,6 +144,7 @@ exports.sendMessage = async (req, res) => {
 
     return res.status(status).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: error?.message || "Unable to send your message.",
     });
   }
@@ -148,6 +156,7 @@ exports.markConversationAsRead = async (req, res) => {
     const conversation = await markConversationRead({
       conversationId: req.params.conversationId,
       userId: req.user._id,
+      throughMessageId: req.body?.throughMessageId,
     });
 
     const totalUnread = await getTotalUnreadMessages(req.user._id);
@@ -167,6 +176,7 @@ exports.markConversationAsRead = async (req, res) => {
 
     return res.status(status).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: error?.message || "Unable to mark this conversation as read.",
     });
   }
@@ -186,6 +196,7 @@ exports.getUnreadMessageCount = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+      ...(error?.code && typeof error.code === "string" && { code: error.code }),
       message: "Unable to retrieve unread message count.",
     });
   }

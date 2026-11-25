@@ -39,7 +39,7 @@ function safeUser({ _id, name, email, profileImage, role, isVerified, isSuspende
   return { _id, name, email, profileImage, role, isVerified, isSuspended, profileCompleted };
 }
 
-function createMarketplaceStagingApp({ users, chat, secret, clock, trustProxy = false }) {
+function createMarketplaceStagingApp({ users, chat, services, secret, clock, trustProxy = false }) {
   const app = express();
   const dummyHash = bcrypt.hashSync(randomBytes(24).toString("hex"), 10);
   const loginLimit = limiter({ max: 10, interval: 60000, clock });
@@ -107,6 +107,26 @@ function createMarketplaceStagingApp({ users, chat, secret, clock, trustProxy = 
   api.post("/bookings/:id/conversation", protect, async (req, res) =>
     res.json({ success: true, conversation: await chat.open(objectId(req.params.id), req.user._id) }));
   app.use("/api/messages", api);
+  if (services) {
+    const send = handler => async (req, res) => res.json(await handler(req));
+    app.get("/api/stage2", (_req, res) => res.json({ serviceMarketplace: true }));
+    app.get("/api/artisans", send(() => services.catalog()));
+    app.get("/api/artisans/:id", send(req => services.professional(objectId(req.params.id))));
+    app.get(["/api/bookings", "/api/bookings/my"], protect, send(req => services.list(req.user, req.query.before)));
+    app.get("/api/bookings/:id", protect, send(req => services.detail(objectId(req.params.id), req.user)));
+    app.post("/api/bookings", protect, async (req, res) => {
+      const result = await services.create(req.user, req.body ?? {});
+      res.status(result.replayed ? 200 : 201).json(result);
+    });
+    app.patch("/api/bookings/:id/status", protect, send(req => services.update(objectId(req.params.id), req.user, req.body?.status)));
+    app.post("/api/reviews", protect, send(req => services.review(objectId(req.body?.bookingId), req.user, req.body?.rating, req.body?.comment)));
+    app.get(["/api/notifications", "/api/notifications/inbox"], protect, send(req => services.notifications(req.user, req.query.before)));
+    app.get("/api/notifications/unread-count", protect, send(async req => ({ unreadCount: await services.unread(req.user) })));
+    app.patch("/api/notifications/read-all", protect, send(async req => { await services.read(req.user); return { success: true }; }));
+    app.patch("/api/notifications/:id/read", protect, send(async req => {
+      await services.read(req.user, objectId(req.params.id)); return { success: true };
+    }));
+  }
   app.use((_req, res) => res.status(404).json({ success: false, code: "NOT_FOUND", message: "Route not found." }));
   app.use((error, _req, res, _next) => {
     if (error.type === "entity.parse.failed") return res.status(400).json({ success: false, code: "INVALID_JSON" });

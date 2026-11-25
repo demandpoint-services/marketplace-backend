@@ -67,16 +67,17 @@ async function getOrCreatePreferences(userId) {
   );
 }
 
-async function shouldCreateNotification(recipientId, type) {
+async function shouldCreateNotification(recipientId, type, session) {
   const preferenceField = preferenceMap[type];
 
   if (!preferenceField) {
     return true;
   }
 
-  const preferences = await getOrCreatePreferences(recipientId);
-
-  return preferences[preferenceField] !== false;
+  const preferences = session
+    ? await NotificationPreference.findOne({ user: recipientId }).session(session)
+    : await getOrCreatePreferences(recipientId);
+  return preferences?.[preferenceField] !== false;
 }
 
 function validateNotificationInput({
@@ -119,7 +120,7 @@ async function createNotification({
   resourceId = null,
   dedupeKey = null,
   metadata = {},
-}) {
+}, { session } = {}) {
   validateNotificationInput({
     recipient,
     type,
@@ -128,7 +129,7 @@ async function createNotification({
     message,
   });
 
-  const allowed = await shouldCreateNotification(recipient, type);
+  const allowed = await shouldCreateNotification(recipient, type, session);
 
   if (!allowed) {
     return null;
@@ -152,7 +153,7 @@ async function createNotification({
    * When no dedupe key is supplied, create the notification normally.
    */
   if (!notificationData.dedupeKey) {
-    return Notification.create(notificationData);
+    return session ? (await Notification.create([notificationData], { session }))[0] : Notification.create(notificationData);
   }
 
   /*
@@ -172,6 +173,7 @@ async function createNotification({
       upsert: true,
       setDefaultsOnInsert: true,
       runValidators: true,
+      session,
     },
   );
 }

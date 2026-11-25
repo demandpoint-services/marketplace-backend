@@ -46,6 +46,8 @@ const bookingSchema = new mongoose.Schema(
       ref: "Conversation",
       default: null,
     },
+    clientMutationId: { type: String, maxlength: 80, select: false },
+    requestHash: { type: String, select: false },
     service: {
       type: String,
       trim: true,

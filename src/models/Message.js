@@ -92,6 +92,8 @@ const messageSchema = new mongoose.Schema(
       maxlength: 2000,
     },
 
+    clientMutationId: { type: String, maxlength: 80 },
+
     attachments: {
       type: [attachmentSchema],
       default: [],
@@ -134,6 +136,7 @@ messageSchema.index({
   createdAt: -1,
 });
 
+// Provision this additive index explicitly before enabling idempotent sends.
 messageSchema.pre("validate", function () {
   const hasText = typeof this.text === "string" && this.text.trim().length > 0;
 

@@ -1,4 +1,5 @@
 ﻿const { ObjectId } = require("mongodb");
+const { parseBoundary } = require("./messagePaging");
 const { isDeepStrictEqual } = require("node:util");
 
 const indexes = {
@@ -76,14 +77,8 @@ function pageOptions({ page, limit, before }) {
   const size = positive(limit, 30, 100);
   const number = positive(page, 1, 100000);
   let boundary;
-  if (before !== undefined) {
-    if (page !== undefined || typeof before !== "string" || !/^[\w-]{1,100}$/.test(before)) throw failure(400, "INVALID_CURSOR", "Invalid history cursor.");
-    const decoded = Buffer.from(before, "base64url").toString("utf8");
-    const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\|([a-f0-9]{24})$/.exec(decoded);
-    if (!match || Number.isNaN(Date.parse(match[1])) || new Date(match[1]).toISOString() !== match[1] ||
-        Buffer.from(decoded).toString("base64url") !== before) throw failure(400, "INVALID_CURSOR", "Invalid history cursor.");
-    boundary = { createdAt: new Date(match[1]), _id: new ObjectId(match[2]) };
-  }
+  try { boundary = parseBoundary(before, page); }
+  catch (error) { throw failure(error.status, error.code, error.message); }
   return { size, number, boundary };
 }
 
@@ -98,7 +93,7 @@ function inputMessage({ text, clientMutationId, attachments } = {}) {
   return { text: value, clientMutationId };
 }
 
-function createChat(db, client, { afterMessageInsert = async () => {} } = {}) {
+function createChat(db, client, { afterMessageInsert = async () => {}, recordServiceNotification } = {}) {
   const users = chatCollection(db, "users");
   const conversations = chatCollection(db, "conversations");
   const messages = chatCollection(db, "messages");
@@ -176,6 +171,8 @@ function createChat(db, client, { afterMessageInsert = async () => {} } = {}) {
           ...(input.clientMutationId ? { clientMutationId: input.clientMutationId } : {}) };
         await messages.insertOne(row, { session });
         await afterMessageInsert();
+        await recordServiceNotification?.({ recipient, bookingId: thread.booking, conversationId: id,
+          type: "message_received", title: "New message", createdAt: now }, session);
         await conversations.updateOne({ _id: id }, {
           $set: { lastMessage: row._id, lastMessageAt: row.createdAt, updatedAt: now, lastStagingNotification: recordNotification(row) },
           $inc: { [actor === "client" ? "artisanUnreadCount" : "clientUnreadCount"]: 1 },

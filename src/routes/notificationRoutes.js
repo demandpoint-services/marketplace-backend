@@ -3,6 +3,7 @@ const express = require("express");
 const {
   getMyNotifications,
   getUnreadCount,
+  getServiceInbox,
   markNotificationAsRead,
   markAllNotificationsAsRead,
   deleteNotification,
@@ -21,6 +22,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get("/", getMyNotifications);
+router.get("/inbox", getServiceInbox);
 router.get("/unread-count", getUnreadCount);
 
 router.patch("/read-all", markAllNotificationsAsRead);

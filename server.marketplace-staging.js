@@ -2,6 +2,7 @@
 const { MongoClient } = require("mongodb");
 const { DATABASE, readConfig, verifyDatabase, verifyTransactions } = require("./src/config/marketplaceStaging");
 const { createChat, verifyIndexes, chatCollection } = require("./src/services/marketplaceStagingChat");
+const { createMarketplaceServices } = require("./src/services/marketplaceStagingServices");
 const { createMarketplaceStagingApp } = require("./src/marketplaceStagingApp");
 
 async function startMarketplaceStaging(env) {
@@ -14,7 +15,17 @@ async function startMarketplaceStaging(env) {
     await verifyDatabase(db);
     await verifyIndexes(db);
     await verifyTransactions(client, db);
-    server = createMarketplaceStagingApp({ users: chatCollection(db, "users"), chat: createChat(db, client), secret,
+    await chatCollection(db, "bookings").createIndex({ client: 1, clientMutationId: 1 }, {
+      name: "service_booking_mutation", unique: true, partialFilterExpression: { clientMutationId: { $type: "string" } },
+    });
+    await chatCollection(db, "bookings").createIndex({ client: 1, _id: -1 });
+    await chatCollection(db, "bookings").createIndex({ artisan: 1, _id: -1 });
+    const serviceNotifications = db.collection("marketplace_service_notifications");
+    await serviceNotifications.createIndex({ recipient: 1, _id: -1 });
+    await serviceNotifications.createIndex({ recipient: 1, isRead: 1 });
+    const services = createMarketplaceServices(db, client);
+    server = createMarketplaceStagingApp({ users: chatCollection(db, "users"),
+      chat: createChat(db, client, { recordServiceNotification: services.notice }), services, secret,
       trustProxy: env.RENDER === "true" ? 1 : false }).listen(port, "0.0.0.0");
     await once(server, "listening");
   } catch {

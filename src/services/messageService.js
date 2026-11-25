@@ -4,7 +4,10 @@ const Booking = require("../models/Booking");
 const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 
-const { createNotificationSafely } = require("./notificationService");
+const { isDeepStrictEqual } = require("node:util");
+const { requireMutationIndex } = require("./marketplaceContractIndexes");
+const { cursorFor, parseBoundary } = require("./messagePaging");
+const { createNotification } = require("./notificationService");
 
 const { NOTIFICATION_TYPES } = require("../constants/notificationTypes");
 
@@ -139,9 +142,7 @@ async function getOrCreateBookingConversation({ bookingId, requestingUserId }) {
   assertConversationParticipant(conversation, requestingUserId);
 
   if (!idsMatch(booking.conversation, conversation._id)) {
-    booking.conversation = conversation._id;
-
-    await booking.save();
+    await Booking.updateOne({ _id: booking._id }, { $set: { conversation: conversation._id } });
   }
 
   return populateConversation(conversation._id);
@@ -273,231 +274,130 @@ function sanitizeAttachments(attachments = []) {
     }));
 }
 
-async function sendConversationMessage({
-  conversationId,
-  sender,
-  text = "",
-  attachments = [],
-}) {
-  const conversation = await Conversation.findById(conversationId);
-
-  if (!conversation) {
-    const error = new Error("Conversation not found.");
-
-    error.status = 404;
-
-    throw error;
-  }
-
-  const senderSide = assertConversationParticipant(conversation, sender._id);
-
-  if (conversation.status === "closed") {
-    const error = new Error("This conversation is closed.");
-
-    error.status = 409;
-
-    throw error;
-  }
-
-  const normalizedText = typeof text === "string" ? text.trim() : "";
-
-  const normalizedAttachments = sanitizeAttachments(attachments);
-
-  if (!normalizedText && normalizedAttachments.length === 0) {
-    const error = new Error("Enter a message or attach a file.");
-
-    error.status = 400;
-
-    throw error;
-  }
-
-  if (normalizedText.length > 2000) {
-    const error = new Error("Message must not exceed 2,000 characters.");
-
-    error.status = 400;
-
-    throw error;
-  }
-
-  const recipientId = getRecipientForConversation(conversation, sender._id);
-
-  const message = await Message.create({
-    conversation: conversation._id,
-    booking: conversation.booking,
-    sender: sender._id,
-    recipient: recipientId,
-    type: determineMessageType({
-      text: normalizedText,
-      attachments: normalizedAttachments,
-    }),
-    text: normalizedText,
-    attachments: normalizedAttachments,
-  });
-
-  const unreadField =
-    senderSide === "client" ? "artisanUnreadCount" : "clientUnreadCount";
-
-  await Conversation.findByIdAndUpdate(conversation._id, {
-    $set: {
-      lastMessage: message._id,
-      lastMessageAt: message.createdAt,
-    },
-    $inc: {
-      [unreadField]: 1,
-    },
-  });
-
-  const populatedMessage = await Message.findById(message._id)
-    .populate("sender", "name profileImage role lastSeen")
-    .populate("recipient", "name profileImage role lastSeen");
-
-  const notificationPreview =
-    normalizedText ||
-    (normalizedAttachments.length === 1
-      ? "Sent you an attachment."
-      : `Sent you ${normalizedAttachments.length} attachments.`);
-
-  await createNotificationSafely(
-    {
-      recipient: recipientId,
-      actor: sender._id,
-      type: NOTIFICATION_TYPES.MESSAGE_RECEIVED,
-      category: NOTIFICATION_CATEGORIES.MESSAGE,
-      title: `New message from ${sender.name || "DemandPoint user"}`,
-      message:
-        notificationPreview.length > 180
-          ? `${notificationPreview.slice(0, 177)}...`
-          : notificationPreview,
-      actionUrl: `/messages?conversation=${conversation._id}`,
-      resourceType: "message",
-      resourceId: message._id,
-      dedupeKey: `message:${message._id}`,
-      metadata: {
-        conversationId: conversation._id.toString(),
-        bookingId: conversation.booking.toString(),
-        messageId: message._id.toString(),
-        senderId: sender._id.toString(),
-      },
-    },
-    "Message notification",
-  );
-
-  return populatedMessage;
+function messageError(status, code, message) {
+  return Object.assign(new Error(message), { status, code });
 }
 
-async function getConversationMessages({
-  conversationId,
-  userId,
-  page = 1,
-  limit = 30,
-}) {
-  const conversation = await Conversation.findById(conversationId);
-
-  if (!conversation) {
-    const error = new Error("Conversation not found.");
-
-    error.status = 404;
-
-    throw error;
+async function sendConversationMessage({ conversationId, sender, text = "", attachments = [], clientMutationId }) {
+  if (clientMutationId !== undefined && (typeof clientMutationId !== "string" || !/^[\w-]{1,80}$/.test(clientMutationId))) {
+    throw messageError(400, "INVALID_MUTATION_ID", "Invalid client mutation identifier.");
   }
+  const normalizedText = typeof text === "string" ? text.trim() : "";
+  const normalizedAttachments = sanitizeAttachments(attachments);
+  if ((!normalizedText && !normalizedAttachments.length) || normalizedText.length > 2000) {
+    throw messageError(400, "INVALID_MESSAGE", "Enter a message of up to 2,000 characters or attach a file.");
+  }
+  const key = { conversation: conversationId, sender: sender._id, clientMutationId };
+  if (clientMutationId) await requireMutationIndex(Message.collection, "messages");
+  function replay(message) {
+    const existing = sanitizeAttachments(message.attachments.map(item => item.toObject()));
+    if (message.text !== normalizedText || !isDeepStrictEqual(existing, normalizedAttachments)) {
+      throw messageError(409, "MUTATION_CONFLICT", "This identifier was used for a different message.");
+    }
+    return { id: message._id, replayed: true };
+  }
+  let result;
+  try {
+    result = await mongoose.connection.transaction(async session => {
+      const conversation = await Conversation.findById(conversationId).session(session);
+      if (!conversation) throw messageError(404, "NOT_FOUND", "Conversation not found.");
+      const senderSide = assertConversationParticipant(conversation, sender._id);
+      if (clientMutationId) {
+        const existing = await Message.findOne(key).session(session);
+        if (existing) return replay(existing);
+      }
+      if (conversation.status === "closed") throw messageError(409, "CONVERSATION_CLOSED", "This conversation is closed.");
+      const recipientId = getRecipientForConversation(conversation, sender._id);
+      const [message] = await Message.create([{
+        ...key, booking: conversation.booking, recipient: recipientId,
+        type: determineMessageType({ text: normalizedText, attachments: normalizedAttachments }),
+        text: normalizedText, attachments: normalizedAttachments,
+        createdAt: new Date(Math.max(Date.now(), (conversation.lastMessageAt?.getTime() ?? -1) + 1)),
+      }], { session });
+      await Conversation.findByIdAndUpdate(conversation._id, {
+        $set: { lastMessage: message._id, lastMessageAt: message.createdAt },
+        $inc: { [senderSide === "client" ? "artisanUnreadCount" : "clientUnreadCount"]: 1 },
+      }, { session });
+      const notificationPreview = normalizedText || (normalizedAttachments.length === 1
+        ? "Sent you an attachment." : "Sent you " + normalizedAttachments.length + " attachments.");
+      await createNotification({
+        recipient: recipientId, actor: sender._id,
+        type: NOTIFICATION_TYPES.MESSAGE_RECEIVED, category: NOTIFICATION_CATEGORIES.MESSAGE,
+        title: "New message from " + (sender.name || "DemandPoint user"),
+        message: notificationPreview.length > 180 ? notificationPreview.slice(0, 177) + "..." : notificationPreview,
+        actionUrl: "/messages?conversation=" + conversation._id,
+        resourceType: "message", resourceId: message._id, dedupeKey: "message:" + message._id,
+        metadata: { conversationId: String(conversation._id), bookingId: String(conversation.booking),
+          messageId: String(message._id), senderId: String(sender._id) },
+      }, { session });
+      return { id: message._id, replayed: false };
+    });
+  } catch (error) {
+    if (error.code !== 11000 || !clientMutationId) throw error;
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) throw error;
+    assertConversationParticipant(conversation, sender._id);
+    const existing = await Message.findOne(key);
+    if (!existing) throw error;
+    result = replay(existing);
+  }
+  const message = await Message.findById(result.id)
+    .populate("sender", "name profileImage role lastSeen")
+    .populate("recipient", "name profileImage role lastSeen");
+  return { message, replayed: result.replayed };
+}
 
+async function getConversationMessages({ conversationId, userId, page, before, limit = 30 }) {
+  const conversation = await Conversation.findById(conversationId);
+  if (!conversation) throw messageError(404, "NOT_FOUND", "Conversation not found.");
   assertConversationParticipant(conversation, userId);
-
-  const safePage = Math.max(Number(page) || 1, 1);
-
-  const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
-
-  const skip = (safePage - 1) * safeLimit;
-
+  const safePage = Math.max(Math.floor(Number(page) || 1), 1);
+  const safeLimit = Math.min(Math.max(Math.floor(Number(limit) || 30), 1), 100);
+  const boundary = parseBoundary(before, page);
+  const filter = { conversation: conversation._id };
+  if (boundary) filter.$or = [{ createdAt: { $lt: boundary.createdAt } },
+    { createdAt: boundary.createdAt, _id: { $lt: boundary._id } }];
   const [messages, total] = await Promise.all([
-    Message.find({
-      conversation: conversation._id,
-    })
+    Message.find(filter)
       .populate("sender", "name profileImage role lastSeen")
       .populate("recipient", "name profileImage role lastSeen")
-      .sort({
-        createdAt: -1,
-      })
-      .skip(skip)
-      .limit(safeLimit),
-
-    Message.countDocuments({
-      conversation: conversation._id,
-    }),
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(boundary ? 0 : (safePage - 1) * safeLimit)
+      .limit(safeLimit + 1),
+    Message.countDocuments({ conversation: conversation._id }),
   ]);
-
+  const hasMore = messages.length > safeLimit;
+  const rows = messages.slice(0, safeLimit);
+  const nextCursor = hasMore ? cursorFor(rows.at(-1)) : null;
   return {
-    /*
-     * Database query returns newest first for efficient paging.
-     * Reverse this page so the frontend receives chronological order.
-     */
-    messages: messages.reverse(),
-
-    pagination: {
-      page: safePage,
-      limit: safeLimit,
-      total,
-      pages: Math.max(Math.ceil(total / safeLimit), 1),
-      hasMore: safePage * safeLimit < total,
-    },
+    messages: rows.reverse(),
+    pagination: { page: boundary ? null : safePage, limit: safeLimit, total,
+      pages: Math.max(Math.ceil(total / safeLimit), 1), hasMore, nextCursor },
   };
 }
 
-async function markConversationRead({ conversationId, userId }) {
-  const conversation = await Conversation.findById(conversationId);
-
-  if (!conversation) {
-    const error = new Error("Conversation not found.");
-
-    error.status = 404;
-
-    throw error;
-  }
-
-  const side = assertConversationParticipant(conversation, userId);
-
-  const readAt = new Date();
-
-  await Message.updateMany(
-    {
-      conversation: conversation._id,
-      recipient: userId,
-      read: false,
-    },
-    {
-      $set: {
-        read: true,
-        readAt,
-      },
-    },
-  );
-
-  const unreadField =
-    side === "client" ? "clientUnreadCount" : "artisanUnreadCount";
-
-  conversation[unreadField] = 0;
-
-  await conversation.save();
-
-  return populateConversation(conversation._id);
+async function markConversationRead({ conversationId, userId, throughMessageId }) {
+  await mongoose.connection.transaction(async session => {
+    const conversation = await Conversation.findById(conversationId).session(session);
+    if (!conversation) throw messageError(404, "NOT_FOUND", "Conversation not found.");
+    const side = assertConversationParticipant(conversation, userId);
+    const filter = { conversation: conversation._id, recipient: userId, read: false };
+    if (throughMessageId !== undefined) {
+      if (!mongoose.isObjectIdOrHexString(throughMessageId)) throw messageError(400, "INVALID_READ_BOUNDARY", "Invalid message boundary.");
+      const boundary = await Message.findOne({ conversation: conversation._id, _id: throughMessageId }).session(session);
+      if (!boundary) throw messageError(400, "INVALID_READ_BOUNDARY", "Message boundary is not in this conversation.");
+      filter.$or = [{ createdAt: { $lt: boundary.createdAt } }, { createdAt: boundary.createdAt, _id: { $lte: boundary._id } }];
+    }
+    await Message.updateMany(filter, { $set: { read: true, readAt: new Date() } }, { session });
+    const remaining = await Message.countDocuments({ conversation: conversation._id, recipient: userId, read: false }).session(session);
+    await Conversation.findByIdAndUpdate(conversation._id, { $set: { [side + "UnreadCount"]: remaining } }, { session });
+  });
+  return populateConversation(conversationId);
 }
 
 async function getTotalUnreadMessages(userId) {
-  const conversations = await Conversation.find({
-    participants: userId,
-  }).select("client artisan clientUnreadCount artisanUnreadCount");
-
-  return conversations.reduce((total, conversation) => {
-    if (idsMatch(conversation.client, userId)) {
-      return total + Number(conversation.clientUnreadCount || 0);
-    }
-
-    if (idsMatch(conversation.artisan, userId)) {
-      return total + Number(conversation.artisanUnreadCount || 0);
-    }
-
-    return total;
-  }, 0);
+  const threads = await Conversation.distinct("_id", { $or: [{ client: userId }, { artisan: userId }] });
+  return Message.countDocuments({ conversation: { $in: threads }, recipient: userId, read: false });
 }
 
 module.exports = {

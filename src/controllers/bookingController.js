@@ -1,3 +1,5 @@
+const { createHash } = require("node:crypto");
+const { requireMutationIndex } = require("../services/marketplaceContractIndexes");
 const mongoose = require("mongoose");
 
 const Booking = require("../models/Booking");
@@ -18,35 +20,9 @@ const {
   serializeSubscription,
 } = require("../utils/subscriptionStatus");
 
-const ARTISAN_STATUS_TRANSITIONS = Object.freeze({
-  pending: ["accepted", "declined"],
-  accepted: ["in_progress"],
-  in_progress: ["awaiting_confirmation"],
-  "in-progress": ["awaiting_confirmation"],
-  awaiting_confirmation: [],
-  completed: [],
-  declined: [],
-  cancelled: [],
-});
-
-const CLIENT_STATUS_TRANSITIONS = Object.freeze({
-  pending: ["cancelled"],
-  accepted: ["cancelled"],
-  in_progress: [],
-  "in-progress": [],
-  awaiting_confirmation: ["completed"],
-  completed: [],
-  declined: [],
-  cancelled: [],
-});
-
-function normalizeBookingStatus(status) {
-  if (!status) return "";
-
-  const normalized = String(status).trim().toLowerCase();
-
-  return normalized === "in-progress" ? "in_progress" : normalized;
-}
+const { transitions, normalizeBookingStatus } = require("../services/bookingTransitions");
+const ARTISAN_STATUS_TRANSITIONS = transitions.artisan;
+const CLIENT_STATUS_TRANSITIONS = transitions.client;
 
 function applyLifecycleTimestamp(booking, status, actorRole) {
   const now = new Date();
@@ -119,8 +95,8 @@ function ensureLegacyStatusHistory(booking, previousStatus) {
   }
 }
 
-async function populateBooking(bookingId) {
-  return Booking.findById(bookingId)
+async function populateBooking(bookingId, withReview = false) {
+  const query = Booking.findById(bookingId)
     .populate("client", "name email phone profileImage")
     .populate({
       path: "artisan",
@@ -130,13 +106,37 @@ async function populateBooking(bookingId) {
       },
     })
     .populate("statusHistory.changedBy", "name role");
+  return withReview ? query.populate("review", "rating comment createdAt") : query;
 }
+
+exports.getBookingDetail = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: "Booking not found." });
+    const booking = await populateBooking(req.params.id, true);
+    const userId = String(req.user._id);
+    if (!booking || (String(booking.client?._id) !== userId && String(booking.artisan?.user?._id) !== userId)) {
+      return res.status(404).json({ message: "Booking not found." });
+    }
+    return res.json(booking);
+  } catch {
+    return res.status(500).json({ message: "Unable to retrieve booking." });
+  }
+};
 
 // CREATE BOOKING
 exports.createBooking = async (req, res) => {
   try {
-    const { artisan, service, date, time, address, notes, price } = req.body;
+    const { artisan, service, date, time, address, notes, price, clientMutationId } = req.body;
+    const keyed = clientMutationId !== undefined;
+    if (keyed && (req.user.role !== "client" || typeof clientMutationId !== "string" || !/^[\w-]{16,80}$/.test(clientMutationId))) {
+      return res.status(400).json({ message: "Invalid client booking request identifier." });
+    }
 
+    if (keyed && (typeof service !== "string" || service.trim().length > 160 || typeof date !== "string" ||
+        typeof time !== "string" || typeof address !== "string" || address.trim().length > 500 ||
+        (notes !== undefined && (typeof notes !== "string" || notes.trim().length > 2000)))) {
+      return res.status(400).json({ code: "INVALID_BOOKING", message: "Check the booking details." });
+    }
     if (!artisan) {
       return res.status(400).json({
         message: "Artisan is required.",
@@ -179,6 +179,25 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({
         message: "Service address is required.",
       });
+    }
+
+    const key = { client: req.user._id, clientMutationId };
+    const requestHash = keyed ? createHash("sha256").update(JSON.stringify([
+      String(artisan).toLowerCase(), service.trim(), bookingDate.toISOString(), time.trim(), address.trim(), notes?.trim() || "",
+    ])).digest("hex") : undefined;
+    async function respondToReplay() {
+      const previous = await Booking.findOne(key).select("+requestHash");
+      if (!previous) return false;
+      if (previous.requestHash !== requestHash) {
+        res.status(409).json({ code: "MUTATION_CONFLICT", message: "This identifier was used for another booking." });
+      } else {
+        res.status(200).json({ booking: await populateBooking(previous._id), replayed: true });
+      }
+      return true;
+    }
+    if (keyed) {
+      await requireMutationIndex(Booking.collection, "bookings");
+      if (await respondToReplay()) return;
     }
 
     const artisanProfile = await ArtisanProfile.findById(artisan).populate(
@@ -224,26 +243,39 @@ exports.createBooking = async (req, res) => {
       });
     }
 
+    const offered = artisanProfile.skills?.length ? artisanProfile.skills : [artisanProfile.category];
+    if (keyed && (!offered.includes(service.trim()) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) || bookingDate.toISOString().slice(0, 10) !== date ||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(time.trim()) || new Date(date + "T" + time.trim() + ":00+01:00") <= new Date())) {
+      return res.status(400).json({ code: "INVALID_BOOKING", message: "Select an offered service and a future booking date and time." });
+    }
     const createdAt = new Date();
 
-    const booking = await Booking.create({
-      client: req.user._id,
-      artisan: artisanProfile._id,
-      service: service.trim(),
-      date: bookingDate,
-      time: time.trim(),
-      address: address.trim(),
-      notes: notes?.trim() || "",
-      price: Number(price) || 0,
-      statusHistory: [
-        {
-          status: "pending",
-          changedAt: createdAt,
-          changedBy: req.user._id,
-          actorRole: "client",
-        },
-      ],
-    });
+    let booking;
+    try {
+      booking = await Booking.create({
+        client: req.user._id,
+        artisan: artisanProfile._id,
+        service: service.trim(),
+        date: bookingDate,
+        time: time.trim(),
+        address: address.trim(),
+        notes: notes?.trim() || "",
+        price: keyed ? 0 : Number(price) || 0,
+        ...(keyed && { clientMutationId, requestHash }),
+        statusHistory: [
+          {
+            status: "pending",
+            changedAt: createdAt,
+            changedBy: req.user._id,
+            actorRole: "client",
+          },
+        ],
+      });
+    } catch (error) {
+      if (keyed && error.code === 11000 && await respondToReplay()) return;
+      throw error;
+    }
 
     const populatedBooking = await populateBooking(booking._id);
 
@@ -257,13 +289,36 @@ exports.createBooking = async (req, res) => {
       console.error("Create booking communication error:", communicationError);
     }
 
-    return res.status(201).json(populatedBooking);
+    return res.status(201).json(keyed ? { booking: populatedBooking, replayed: false } : populatedBooking);
   } catch (error) {
+    if (error.code === "MUTATION_INDEX_REQUIRED") return res.status(503).json({ code: error.code, message: error.message });
     console.error("Create booking error:", error);
 
     return res.status(500).json({
       message: error.message || "Unable to create booking.",
     });
+  }
+};
+
+exports.listServiceBookings = async (req, res) => {
+  try {
+    const { before } = req.query;
+    if (before !== undefined && (typeof before !== "string" || !mongoose.isObjectIdOrHexString(before))) {
+      return res.status(400).json({ code: "INVALID_CURSOR", message: "Invalid booking cursor." });
+    }
+    const { _id: userId, role } = req.user;
+    if (!["client", "artisan"].includes(role)) return res.status(403).json({ message: "Marketplace account required." });
+    const filter = role === "client" ? { client: userId } : {
+      artisan: { $in: await ArtisanProfile.distinct("_id", { user: userId }) },
+    };
+    if (before) filter._id = { $lt: before };
+    const rows = await Booking.find(filter).sort({ _id: -1 }).limit(31)
+      .populate("client", "name profileImage")
+      .populate({ path: "artisan", select: "category user", populate: { path: "user", select: "name profileImage" } })
+      .populate("review", "rating comment createdAt");
+    return res.json({ bookings: rows.slice(0, 30), nextCursor: rows.length > 30 ? String(rows[29]._id) : null });
+  } catch {
+    return res.status(500).json({ message: "Unable to retrieve bookings." });
   }
 };
 
@@ -429,6 +484,7 @@ exports.updateBookingStatus = async (req, res) => {
       });
     }
 
+    const storedStatus = booking.status;
     ensureLegacyStatusHistory(booking, previousStatus);
 
     booking.status = requestedStatus;
@@ -446,7 +502,9 @@ exports.updateBookingStatus = async (req, res) => {
       changedAt,
     });
 
-    await booking.save();
+    const fields = Object.fromEntries(booking.directModifiedPaths().map(path => [path, booking.get(path)]));
+    const result = await Booking.updateOne({ _id: booking._id, status: storedStatus }, { $set: fields }, { runValidators: true });
+    if (!result.matchedCount) return res.status(409).json({ code: "INVALID_TRANSITION", message: "The booking changed. Refresh and try again." });
 
     const updatedBooking = await populateBooking(booking._id);
 

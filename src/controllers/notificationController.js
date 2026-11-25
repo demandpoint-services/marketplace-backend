@@ -63,6 +63,23 @@ exports.getMyNotifications = async (req, res) => {
   }
 };
 
+exports.getServiceInbox = async (req, res) => {
+  try {
+    const { before } = req.query;
+    if (before !== undefined && (typeof before !== "string" || !mongoose.isObjectIdOrHexString(before))) {
+      return res.status(400).json({ code: "INVALID_CURSOR", message: "Invalid notification cursor." });
+    }
+    const rows = await Notification.find({ recipient: req.user._id, ...(before && { _id: { $lt: before } }) })
+      .sort({ _id: -1 }).limit(31).select("title type createdAt read metadata").lean();
+    return res.json({ notifications: rows.slice(0, 30).map(row => ({
+      _id: row._id, title: row.title, type: row.type, createdAt: row.createdAt, isRead: row.read,
+      bookingId: row.metadata?.bookingId, conversationId: row.metadata?.conversationId,
+    })), nextCursor: rows.length > 30 ? String(rows[29]._id) : null });
+  } catch {
+    return res.status(500).json({ message: "Unable to retrieve notifications." });
+  }
+};
+
 exports.getUnreadCount = async (req, res) => {
   try {
     const unreadCount = await Notification.countDocuments({
